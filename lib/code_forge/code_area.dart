@@ -204,6 +204,9 @@ class CodeForge extends StatefulWidget {
   /// Defaults to [TextDirection.ltr].
   final TextDirection textDirection;
 
+  // Set Custom Tab Size
+  final int tabSize;
+
   /// A list of custom code snippets that appear in the suggestion popup.
   ///
   /// Each [CustomCodeSnippet] defines a label (shown in the popup), the code
@@ -257,6 +260,7 @@ class CodeForge extends StatefulWidget {
     this.enableKeyboardSuggestions = true,
     this.keyboardType = TextInputType.multiline,
     this.textDirection = TextDirection.ltr,
+    this.tabSize = 4,
     this.enableGutter = true,
     this.enableGutterDivider = false,
     this.deleteFoldRangeOnDeletingFirstLine = false,
@@ -363,6 +367,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _controller.readOnly = true;
     } else if (_controller.readOnly && !widget.readOnly) {
       _readOnly = true;
+    }
+
+    if (widget.tabSize != _controller.tabSize) {
+      _controller.tabSize = widget.tabSize;
     }
 
     _gutterStyle =
@@ -2303,10 +2311,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                   _buildContextMenu(),
                   ValueListenableBuilder(
                     valueListenable: _offsetNotifier,
-                    builder: (_, offset, __) {
+                    builder: (_, offset, _) {
                       return ValueListenableBuilder(
                         valueListenable: _lspSignatureNotifier,
-                        builder: (_, signature, __) {
+                        builder: (_, signature, _) {
                           if (signature == null ||
                               signature.activeParameter < 0 ||
                               signature.parameters.isEmpty) {
@@ -3155,7 +3163,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                           onExit: (_) => _isHoveringPopup.value = false,
                           child: ValueListenableBuilder<Map<String, dynamic>?>(
                             valueListenable: _hoverContentNotifier,
-                            builder: (_, data, __) {
+                            builder: (_, data, _) {
                               if (data == null) {
                                 return ConstrainedBox(
                                   constraints: BoxConstraints(
@@ -7500,7 +7508,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   ) {
     final viewTop = vscrollController.offset;
     final viewBottom = viewTop + vscrollController.position.viewportDimension;
-    final tabSize = 4;
+    final tabSize = controller.tabSize;
     final cursorOffset = controller.selection.extentOffset;
     final currentLine = controller.getLineAtOffset(cursorOffset);
     List<({int startLine, int endLine, int indentLevel, double guideX})>

@@ -77,7 +77,7 @@ class CodeForgeController implements DeltaTextInputClient {
   bool _lspFoldRangesAdjustedNotFetched = false;
   bool _inlayHintsVisible = false, documentHighlightsChanged = false;
 
-  CodeForgeController({this.lspConfig}) {
+  CodeForgeController({this.lspConfig, this.tabSize = 4}) {
     if (lspConfig != null) {
       (() async {
         try {
@@ -1437,6 +1437,10 @@ class CodeForgeController implements DeltaTextInputClient {
   ///
   /// When true, the user cannot modify the text content.
   bool readOnly = false;
+
+  // Tab size
+  int tabSize = 4;
+  String get tabSpace => ' ' * tabSize;
 
   /// Whether the line structure has changed (lines added or removed).
   bool lineStructureChanged = false;
@@ -2937,20 +2941,20 @@ class CodeForgeController implements DeltaTextInputClient {
       final selectedBlock = text.substring(lineStart, lineEnd);
       final indentedBlock = selectedBlock
           .split('\n')
-          .map((line) => '   $line')
+          .map((line) => '$tabSpace$line')
           .join('\n');
 
       final lines = selectedBlock.split('\n');
-      final addedChars = 3 * lines.length;
+      final addedChars = tabSize * lines.length;
       final newSelection = TextSelection(
-        baseOffset: selection.baseOffset + 3,
+        baseOffset: selection.baseOffset + tabSize,
         extentOffset: selection.extentOffset + addedChars,
       );
 
       replaceRange(lineStart, lineEnd, indentedBlock);
       setSelectionSilently(newSelection);
     } else {
-      insertAtCurrentCursor('   ');
+      insertAtCurrentCursor(tabSpace);
     }
   }
 
@@ -2974,20 +2978,19 @@ class CodeForgeController implements DeltaTextInputClient {
       if (lineEnd == -1) lineEnd = text.length;
 
       final selectedBlock = text.substring(lineStart, lineEnd);
-      final unindentedBlock = selectedBlock
-          .split('\n')
+      final lines = selectedBlock.split('\n');
+      final unindentedBlock = lines
           .map(
-            (line) => line.startsWith('   ')
-                ? line.substring(3)
+            (line) => line.startsWith(tabSpace)
+                ? line.substring(tabSize)
                 : line.replaceFirst(RegExp(r'^ +'), ''),
           )
           .join('\n');
 
-      final lines = selectedBlock.split('\n');
       int removedChars = 0;
       for (final line in lines) {
-        if (line.startsWith('   ')) {
-          removedChars += 3;
+        if (line.startsWith(tabSpace)) {
+          removedChars += tabSize;
         } else {
           removedChars += RegExp(r'^ +').stringMatch(line)?.length ?? 0;
         }
@@ -2996,8 +2999,8 @@ class CodeForgeController implements DeltaTextInputClient {
       final newSelection = TextSelection(
         baseOffset:
             selection.baseOffset -
-            (lines.first.startsWith('   ')
-                ? 3
+            (lines.first.startsWith(tabSpace)
+                ? tabSize
                 : (RegExp(r'^ +').stringMatch(lines.first)?.length ?? 0)),
         extentOffset: selection.extentOffset - removedChars,
       );
@@ -3013,8 +3016,8 @@ class CodeForgeController implements DeltaTextInputClient {
       final line = text.substring(lineStart, lineEnd);
 
       int removeCount = 0;
-      if (line.startsWith('   ')) {
-        removeCount = 3;
+      if (line.startsWith(tabSpace)) {
+        removeCount = tabSize;
       } else {
         removeCount = RegExp(r'^ +').stringMatch(line)?.length ?? 0;
       }
@@ -3879,7 +3882,7 @@ class CodeForgeController implements DeltaTextInputClient {
           final indentMatch = RegExp(r'^\s*').firstMatch(prevLine);
           final prevIndent = indentMatch?.group(0) ?? '';
           final shouldIndent = RegExp(r'[:{[(]\s*$').hasMatch(prevLine);
-          final extraIndent = shouldIndent ? '  ' : '';
+          final extraIndent = shouldIndent ? tabSpace : '';
           final indent = prevIndent + extraIndent;
           final openToClose = {'{': '}', '(': ')', '[': ']'};
           final trimmedPrev = prevLine.trimRight();

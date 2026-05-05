@@ -467,7 +467,7 @@ sealed class LspConfig {
     commonParams.addAll({
       'context': {
         'triggerKind': triggerKind,
-        if (triggerCharacter != null) 'triggerCharacter': triggerCharacter,
+        'triggerCharacter': ?triggerCharacter,
         'isRetrigger': isRetrigger,
       },
     });
