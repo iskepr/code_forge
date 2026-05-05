@@ -386,3 +386,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 ## 9.9.0
   - FIX: Cursor jump on typing.
   - FIX: Frozen horizontal scroll on dynamic font size.
+
+## 9.10.0
+  - FEATURE: Added `tabSize` to customize tab spaces in the Controller.
