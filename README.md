@@ -45,9 +45,12 @@
 This will make the code_forge lightning fast like the [zed editor](https://zed.dev/).**
 
 
-### What's new in 9.9.0
-  - FIX: Cursor jump on typing.
-  - FIX: Frozen horizontal scroll on dynamic font size.
+### What's new in 9.10.0
+  - FEATURE: Added `tabSize` to customize tab spaces in the Controller.
+  - FIX: [#63](https://github.com/heckmon/code_forge/issues/63)
+  - FIX: [#61](https://github.com/heckmon/code_forge/issues/61)
+  - FIX: [#65](https://github.com/heckmon/code_forge/issues/65)
+  - FIX: [#62](https://github.com/heckmon/code_forge/issues/62)
 
 
 
@@ -77,10 +80,10 @@ This will make the code_forge lightning fast like the [zed editor](https://zed.d
 
 To see working examples of all CodeForge features including AI Code Completion, LSP Integration, Smart Code Folding, Syntax Highlighting, Search and Replace, and RTL Language Support, visit the features showcase page above.
 
-### 🌟 More Features
+### More Features
 
 <details>
-<summary><strong>📋 Complete Feature List</strong></summary>
+<summary><strong>Complete Feature List</strong></summary>
 
 #### Editor Core
 - **Rope Data Structure** — Optimized for large files
@@ -117,13 +120,13 @@ To see working examples of all CodeForge features including AI Code Completion, 
 
 ---
 
-## 📦 Installation
+## Installation
 
 Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.9.0
+  code_forge: ^9.10.0
 ```
 
 Then run:
@@ -134,7 +137,7 @@ flutter pub get
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Basic Usage
 
@@ -188,7 +191,7 @@ class _EditorState extends State<Editor> {
 
 <details>
 
-<summary><h2>🔌 LSP Integration</h2></summary>
+<summary><h2>LSP Integration</h2></summary>
 
 Connect to any Language Server Protocol compatible server for intelligent code assistance.
 
@@ -353,7 +356,7 @@ Future<LspConfig> setupDartLsp() async {
 ---
 
 <details>
-<summary><h2>🎨 Customization</h2></summary>
+<summary><h2> Customization</h2></summary>
 
 CodeForge offers extensive customization options for every aspect of the editor.
 
@@ -442,7 +445,7 @@ CodeForge(
 ---
 
 <details>
-<summary><h2>📚 API Reference</h2></summary>
+<summary><h2>API Reference</h2></summary>
 
 ### CodeForge Widget
 
@@ -686,7 +689,7 @@ final lspConfig = LspSocketConfig(
 
 ---
 <details>
-<summary><h2>⌨️ Keyboard Shortcuts</h2></summary>
+<summary><h2>Keyboard Shortcuts</h2></summary>
 CodeForge supports a variety of keyboard shortcuts for efficient editing:
 
 ### Editing

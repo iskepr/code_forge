@@ -33,7 +33,7 @@ import 'package:flutter/services.dart';
 /// controller.unfoldAll();
 /// ```
 class CodeForgeController implements DeltaTextInputClient {
-  static const _flushDelay = Duration(milliseconds: 300);
+  static const _flushDelay = Duration(milliseconds: 100);
   static const _semanticTokenDebounce = Duration(milliseconds: 500);
   static const _documentColorDebounce = Duration(milliseconds: 50);
   static const _documentHighlightDebounce = Duration(milliseconds: 300);
@@ -289,7 +289,6 @@ class CodeForgeController implements DeltaTextInputClient {
       _lspTypingTimer = Timer(_lspTypingDebounce, () async {
         if (_isDisposed || !_lspReady || openedFile == null) return;
 
-        // Push the document update at the end of the typing debounce
         await lspConfig!.updateDocument(openedFile!, currentText);
 
         if (_usesCclsSemanticHighlight && !_isDisposed) {
@@ -372,6 +371,9 @@ class CodeForgeController implements DeltaTextInputClient {
     null,
   );
 
+  /// The [FocusNode] instance, used to control editor focus
+  FocusNode? focusNode;
+
   /// Configuration for Language Server Protocol integration.
   ///
   /// Enables advanced features like hover documentation, diagnostics,
@@ -437,6 +439,7 @@ class CodeForgeController implements DeltaTextInputClient {
   List<int> _foldedStartsSorted = [];
   List<int> _foldedEndsSorted = [];
 
+  /// Set fold ranges in the editor
   set foldings(Map<int, FoldRange?> value) {
     _foldings = value;
     _rebuildFoldSortedCache();
@@ -1446,7 +1449,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
   /// The tabspace inserted on tab key press.
   String get tabSpace {
-    if(useSpaceAsTab) {
+    if (useSpaceAsTab) {
       return ' ' * tabSize;
     }
     return '\t' * tabSize;
@@ -2681,7 +2684,11 @@ class CodeForgeController implements DeltaTextInputClient {
   @protected
   @override
   void connectionClosed() {
-    connection = null;
+    if (connection != null && connection!.attached) {
+      connection?.connectionClosedReceived();
+      connection = null;
+      focusNode?.unfocus();
+    }
   }
 
   @protected
@@ -2742,9 +2749,36 @@ class CodeForgeController implements DeltaTextInputClient {
     notifyListeners();
   }
 
+  Offset? Function()? getFloatingCursorStartPosition;
+  int Function(Offset)? getTextOffsetForFloatingCursorPosition;
+  Offset? _floatingCursorStartPosition;
+
   @protected
   @override
-  void updateFloatingCursor(RawFloatingCursorPoint point) {}
+  void updateFloatingCursor(RawFloatingCursorPoint point) {
+    if (readOnly) return;
+
+    switch (point.state) {
+      case FloatingCursorDragState.Start:
+        _floatingCursorStartPosition = getFloatingCursorStartPosition?.call();
+        break;
+      case FloatingCursorDragState.Update:
+        if (point.offset == null ||
+            _floatingCursorStartPosition == null ||
+            getTextOffsetForFloatingCursorPosition == null) {
+          return;
+        }
+        final targetPosition = _floatingCursorStartPosition! + point.offset!;
+        final newOffset = getTextOffsetForFloatingCursorPosition!(
+          targetPosition,
+        );
+        setSelectionSilently(TextSelection.collapsed(offset: newOffset));
+        break;
+      case FloatingCursorDragState.End:
+        _floatingCursorStartPosition = null;
+        break;
+    }
+  }
 
   /// Replace a range of text with new text.
   /// Used for clipboard operations and text manipulation.

@@ -238,7 +238,7 @@ class CodeForge extends StatefulWidget {
     FindController findController,
   )?
   finderBuilder;
-  
+
   final int _tabSize;
 
   /// Creates a [CodeForge] code editor widget.
@@ -325,6 +325,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   final Map<String, String> _suggestionDetailsCache = {};
   final Map<String, Map<String, dynamic>> _hoverCache = {};
   final _isMac = Platform.isMacOS;
+  final GlobalKey _codeFieldKey = GlobalKey();
   TextInputConnection? _connection;
   StreamSubscription? _lspResponsesSubscription;
   bool _isHovering = false, _isSignatureInvoked = false;
@@ -341,8 +342,26 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _controller = widget.controller ?? CodeForgeController();
+
+    _controller.getFloatingCursorStartPosition = () {
+      final renderObject = _codeFieldKey.currentContext?.findRenderObject();
+      if (renderObject is _CodeFieldRenderer) {
+        return renderObject.getCaretOffset();
+      }
+      return null;
+    };
+
+    _controller.getTextOffsetForFloatingCursorPosition = (Offset position) {
+      final renderObject = _codeFieldKey.currentContext?.findRenderObject();
+      if (renderObject is _CodeFieldRenderer) {
+        return renderObject.getTextOffsetForPosition(position);
+      }
+      return _controller.selection.baseOffset;
+    };
+
     _findController = widget.findController ?? FindController(_controller);
-    _focusNode = widget.focusNode ?? FocusNode();
+    _controller.focusNode = widget.focusNode ?? FocusNode();
+    _focusNode = _controller.focusNode!;
     _hscrollController =
         widget.horizontalScrollController ?? ScrollController();
     _vscrollController = widget.verticalScrollController ?? ScrollController();
@@ -381,7 +400,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _controller.tabSize = widget._tabSize;
     }
 
-    if(widget.useSpaceAsTab != _controller.useSpaceAsTab){
+    if (widget.useSpaceAsTab != _controller.useSpaceAsTab) {
       _controller.useSpaceAsTab = widget.useSpaceAsTab;
     }
 
@@ -697,6 +716,25 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.autoFocus) {
         _focusNode.requestFocus();
+      } else {
+        _connection = TextInput.attach(
+          _controller,
+          TextInputConfiguration(
+            readOnly: widget.readOnly,
+            enableDeltaModel: true,
+            enableSuggestions: widget.enableKeyboardSuggestions,
+            inputType: widget.keyboardType,
+            inputAction: TextInputAction.newline,
+            autocorrect: false,
+            viewId: View.of(context).viewId,
+          ),
+        );
+
+        _connection!.setEditingState(TextEditingValue(text: _controller.text));
+
+        if (_isMobile) _focusNode.requestFocus();
+
+        _controller.connection = _connection;
       }
     });
   }
@@ -1413,13 +1451,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                 : Matrix4.identity(),
                             child: GestureDetector(
                               onTap: () {
+                                if (_isMobile) return;
                                 _focusNode.requestFocus();
-                                if (_contextMenuOffsetNotifier.value.dx >= 0) {
-                                  _contextMenuOffsetNotifier.value =
-                                      const Offset(-1, -1);
-                                }
-                                _suggestionNotifier.value = null;
-                                _lspSignatureNotifier.value = null;
                               },
                               onDoubleTapDown: (details) {
                                 if (_controller.text.isNotEmpty) return;
@@ -2220,6 +2253,36 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                           .handled;
 
                                                     case LogicalKeyboardKey
+                                                        .pageUp:
+                                                      _vscrollController
+                                                          .animateTo(
+                                                            _vscrollController
+                                                                    .offset -
+                                                                650,
+                                                            duration: Duration(
+                                                              milliseconds: 300,
+                                                            ),
+                                                            curve: Curves.ease,
+                                                          );
+                                                      return KeyEventResult
+                                                          .handled;
+
+                                                    case LogicalKeyboardKey
+                                                        .pageDown:
+                                                      _vscrollController
+                                                          .animateTo(
+                                                            _vscrollController
+                                                                    .offset +
+                                                                650,
+                                                            duration: Duration(
+                                                              milliseconds: 300,
+                                                            ),
+                                                            curve: Curves.ease,
+                                                          );
+                                                      return KeyEventResult
+                                                          .handled;
+
+                                                    case LogicalKeyboardKey
                                                         .enter:
                                                       if (_aiNotifier.value !=
                                                           null) {
@@ -2233,6 +2296,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 return KeyEventResult.ignored;
                                               },
                                               child: _CodeField(
+                                                key: _codeFieldKey,
                                                 context: context,
                                                 controller: _controller,
                                                 editorTheme: _editorTheme,
@@ -3731,6 +3795,7 @@ class _CodeField extends LeafRenderObjectWidget {
   final TextDirection textDirection;
 
   const _CodeField({
+    super.key,
     required this.controller,
     required this.editorTheme,
     required this.language,
@@ -4721,12 +4786,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     offsetNotifier.value = Offset(relX, relY);
 
-    if (caretY > 0 && caretY <= vScrollOffset + (innerPadding?.top ?? 0)) {
+    if (caretY >= 0 && caretY <= vScrollOffset + (innerPadding?.top ?? 0)) {
       final targetOffset = caretY - (innerPadding?.top ?? 0);
       vscrollController.jumpTo(
         targetOffset.clamp(0, vscrollController.position.maxScrollExtent),
       );
-    } else if (caretY + caretHeight >= vScrollOffset + viewportHeight) {
+    } else if (caretY + caretHeight > vScrollOffset + viewportHeight) {
       final targetOffset = caretY + caretHeight - viewportHeight;
       vscrollController.jumpTo(
         targetOffset.clamp(0, vscrollController.position.maxScrollExtent),
@@ -6120,6 +6185,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     return absoluteOffset.clamp(0, controller.length);
   }
 
+  Offset getCaretOffset() => _getCaretInfo().offset;
+
+  int getTextOffsetForPosition(Offset position) {
+    return _getTextOffsetFromPosition(position);
+  }
+
   double _getLineWidth(int lineIndex) {
     final lineText = controller.getLineText(lineIndex);
     final cachedText = _lineTextCache[lineIndex];
@@ -6207,10 +6278,16 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     if (_isDeferringLayout && _hasCachedHeight) {
-      final contentHeight =
+      final computedContentHeight =
           _cachedTotalHeight +
           (innerPadding?.top ?? 0) +
           _totalVirtualExtraHeight;
+      final contentHeight = max(
+        computedContentHeight,
+        constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : MediaQuery.of(context).size.height,
+      );
       final computedWidth = lineWrap
           ? (constraints.maxWidth.isFinite
                 ? constraints.maxWidth
@@ -6326,8 +6403,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _isCachedHeightExact = true;
     _previousLineCount = lineCount;
 
-    final contentHeight =
+    final computedContentHeight =
         visibleHeight + (innerPadding?.top ?? 0) + _totalVirtualExtraHeight;
+    final contentHeight = max(
+      computedContentHeight,
+      constraints.maxHeight.isFinite
+          ? constraints.maxHeight
+          : MediaQuery.of(context).size.height,
+    );
     final computedWidth = lineWrap
         ? (constraints.maxWidth.isFinite
               ? constraints.maxWidth
@@ -6930,9 +7013,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
               size.width * 0.6,
             );
             final zoomBoxHeight = zoomParagraph.height + 12;
-            final zoomBoxX = (handleX - zoomBoxWidth / 2).clamp(
+            final double zoomBoxX = (handleX - zoomBoxWidth / 2).clamp(
               0.0,
-              size.width - zoomBoxWidth,
+              max(0.0, size.width - zoomBoxWidth),
             );
             final zoomBoxY = handleY - zoomBoxHeight - 18;
 
@@ -6987,20 +7070,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           topRight: isRTL ? Radius.circular(25) : Radius.zero,
           bottomLeft: Radius.circular(25),
           bottomRight: Radius.circular(25),
-        );    
+        );
 
         if (_startHandleRect != null) {
-          canvas.drawRRect(
-            leftRect,
-            handlePaint,
-          );
+          canvas.drawRRect(leftRect, handlePaint);
         }
 
         if (_endHandleRect != null) {
-          canvas.drawRRect(
-            rightRect,
-            handlePaint,
-          );
+          canvas.drawRRect(rightRect, handlePaint);
         }
 
         if (_draggingStartHandle ||
@@ -7088,8 +7165,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           final fingerOffsetX = _draggingStartHandle
               ? 30.0
               : (_draggingEndHandle ? -30.0 : 0.0);
-          var zoomBoxX = (handleCenterX + fingerOffsetX - zoomBoxWidth / 2)
-              .clamp(4.0, size.width - zoomBoxWidth - 4);
+          final double zoomBoxX =
+              (handleCenterX + fingerOffsetX - zoomBoxWidth / 2).clamp(
+                4.0,
+                max(4.0, size.width - zoomBoxWidth - 4),
+              );
           var zoomBoxY = handleTopY - zoomBoxHeight - fingerOffsetY;
           final viewportTop = 0.0;
           final viewportBottom = size.height;
@@ -7105,7 +7185,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
           zoomBoxY = zoomBoxY.clamp(
             viewportTop + 4,
-            viewportBottom - zoomBoxHeight - 4,
+            max(viewportTop + 4, viewportBottom - zoomBoxHeight - 4),
           );
 
           final rrect = RRect.fromRectAndRadius(
@@ -7153,7 +7233,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             }
 
             if (isRTL) {
-              canvas.drawParagraph(para, Offset(zoomBoxX + zoomBoxWidth - 12 - 10000.0, yOffset));
+              canvas.drawParagraph(
+                para,
+                Offset(zoomBoxX + zoomBoxWidth - 12 - 10000.0, yOffset),
+              );
             } else {
               canvas.drawParagraph(para, Offset(zoomBoxX + 12, yOffset));
             }
@@ -7493,8 +7576,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     int endLine = startLine + 1;
+    int lastValidLine = startLine;
+
     while (endLine < controller.lineCount) {
       if (hasActiveFolds && _isLineFolded(endLine)) {
+        lastValidLine = endLine;
         endLine++;
         continue;
       }
@@ -7514,11 +7600,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
       final nextLeading = nextLine.length - nextLine.trimLeft().length;
       if (nextLeading <= leadingSpaces) break;
+
+      lastValidLine = endLine;
       endLine++;
     }
 
-    _indentEndLineCache[key] = endLine;
-    return endLine;
+    final result = lastValidLine + 1;
+    _indentEndLineCache[key] = result;
+    return result;
   }
 
   void _drawIndentGuides(
@@ -7597,7 +7686,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final matchPos = _findMatchingBracket(controller.text, bracketPos);
 
         if (matchPos != null) {
-          endLine = controller.getLineAtOffset(matchPos) + 1;
+          endLine = controller.getLineAtOffset(matchPos);
         } else {
           endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
         }
@@ -7881,15 +7970,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final screenY =
         offset.dy + (innerPadding?.top ?? 0) + boxY - vscrollController.offset;
 
-    final bracketRect = Rect.fromLTWH(
-      screenX - 1,
-      screenY,
-      box.right - box.left + 2,
-      _lineHeight,
+    final bracketRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        screenX - 1.5,
+        screenY - 1,
+        box.right - box.left + 3,
+        _lineHeight + 2.5,
+      ),
+      Radius.circular(2),
     );
 
     _bracketHighlightPainter.color = textColor;
-    canvas.drawRect(bracketRect, _bracketHighlightPainter);
+    canvas.drawRRect(bracketRect, _bracketHighlightPainter);
   }
 
   void _drawDiagnostics(
@@ -10103,6 +10195,34 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   }
 
   @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    bool isHit = false;
+    if (size.contains(position)) {
+      isHit = true;
+    } else {
+      if (_startHandleRect?.contains(position) == true) {
+        isHit = true;
+      } else if (_endHandleRect?.contains(position) == true) {
+        isHit = true;
+      } else if (_normalHandle != null) {
+        final handleRadius = (_lineHeight / 2).clamp(6.0, 12.0);
+        if (_normalHandle!.inflate(handleRadius * 1.5).contains(position)) {
+          isHit = true;
+        }
+      }
+    }
+
+    if (isHit) {
+      if (hitTestChildren(result, position: position) ||
+          hitTestSelf(position)) {
+        result.add(BoxHitTestEntry(this, position));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
   bool hitTestSelf(Offset position) => true;
 
   @override
@@ -10112,7 +10232,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         localPosition.dy + vscrollController.offset - (innerPadding?.top ?? 0);
     _currentPosition = localPosition;
 
-    final contentX = localPosition.dx -
+    final contentX =
+        localPosition.dx -
         (isRTL ? 0 : _gutterWidth) -
         (innerPadding?.left ?? 0) +
         (lineWrap ? 0 : _effectiveHScroll);
@@ -10165,8 +10286,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     if (event is PointerDownEvent && event.buttons == kPrimaryButton) {
+      _onetap.addPointer(event);
       try {
-        focusNode.requestFocus();
         suggestionNotifier.value = null;
         signatureNotifier.value = null;
       } catch (e) {
@@ -10211,7 +10332,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         return;
       }
 
-      _onetap.addPointer(event);
       if (isMobile) {
         _dtap.addPointer(event);
         _draggingCHandle = false;

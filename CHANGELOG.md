@@ -389,3 +389,7 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 
 ## 9.10.0
   - FEATURE: Added `tabSize` to customize tab spaces in the Controller.
+  - FIX: [#63](https://github.com/heckmon/code_forge/issues/63)
+  - FIX: [#61](https://github.com/heckmon/code_forge/issues/61)
+  - FIX: [#65](https://github.com/heckmon/code_forge/issues/65)
+  - FIX: [#62](https://github.com/heckmon/code_forge/issues/62)
