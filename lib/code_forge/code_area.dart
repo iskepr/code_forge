@@ -6424,15 +6424,20 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         ).clamp(0, lineCount - 1);
         firstVisibleLineY = firstVisibleLine * _lineHeight;
       } else {
-        firstVisibleLine = (viewTop / _lineHeight).floor().clamp(
-          0,
-          lineCount - 1,
+        final frame = buildViewportFrame(
+          rope: controller.rope.core,
+          viewTop: viewTop,
+          viewBottom: viewBottom,
+          lineHeight: _lineHeight,
         );
-        lastVisibleLine = (viewBottom / _lineHeight).ceil().clamp(
-          0,
-          lineCount - 1,
-        );
-        firstVisibleLineY = firstVisibleLine * _lineHeight;
+        firstVisibleLine = frame.firstLine;
+        lastVisibleLine = frame.lastLine;
+        firstVisibleLineY = frame.firstLineY;
+        // Prefill approximate line heights from native frame to avoid per-line length queries in Dart
+        for (int i = 0; i < frame.lines.length; i++) {
+          final lineIndex = frame.firstLine + i;
+          _lineHeightCache[lineIndex] = frame.lines[i].height;
+        }
       }
     } else if (!lineWrap && hasActiveFolds) {
       _ensureFoldedLineCacheValid();
@@ -6493,6 +6498,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         }
       }
     }
+
+    _pruneViewportCaches(firstVisibleLine, lastVisibleLine);
 
     _drawSearchHighlights(
       canvas,
@@ -7487,6 +7494,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     bool hasActiveFolds,
     Color textColor,
   ) {
+    if (!enableGuideLines) return;
+
     final viewTop = vscrollController.offset;
     final viewBottom = viewTop + vscrollController.position.viewportDimension;
     final tabSize = controller.tabSize;
@@ -7695,6 +7704,37 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         Offset(screenGuideX, clampedYTop),
         Offset(screenGuideX, clampedYBottom),
         guidePaint,
+      );
+    }
+  }
+
+  void _pruneViewportCaches(int firstVisibleLine, int lastVisibleLine) {
+    const int keepMargin = 400;
+    const int maxLineBoundedCacheEntries = 3000;
+
+    final minKeep = max(0, firstVisibleLine - keepMargin);
+    final maxKeep = min(controller.lineCount - 1, lastVisibleLine + keepMargin);
+
+    bool shouldPrune(Map<int, dynamic> cache) {
+      return cache.length > maxLineBoundedCacheEntries;
+    }
+
+    void pruneIntKeyed(Map<int, dynamic> cache) {
+      if (!shouldPrune(cache)) return;
+      cache.removeWhere((line, _) => line < minKeep || line > maxKeep);
+    }
+
+    pruneIntKeyed(_lineTextCache);
+    pruneIntKeyed(_lineWidthCache);
+    pruneIntKeyed(_lineHeightCache);
+    pruneIntKeyed(_paragraphCache);
+    pruneIntKeyed(_lineIndentCache);
+    pruneIntKeyed(_bracketCache);
+    pruneIntKeyed(_caretInfoCache);
+
+    if (_indentGuideCache.length > maxLineBoundedCacheEntries) {
+      _indentGuideCache.removeWhere(
+        (line, _) => line < minKeep || line > maxKeep,
       );
     }
   }

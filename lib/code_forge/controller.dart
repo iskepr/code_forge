@@ -38,6 +38,8 @@ class CodeForgeController implements DeltaTextInputClient {
   static const _documentColorDebounce = Duration(milliseconds: 50);
   static const _documentHighlightDebounce = Duration(milliseconds: 300);
   static const _cclsRefreshDebounce = Duration(milliseconds: 1000);
+  static const _imeProjectionLineRadius = 2;
+  static const _imeProjectionMaxChars = 4096;
   final List<VoidCallback> _listeners = [];
   final _isMobile = Platform.isAndroid || Platform.isIOS;
   final List<LineDecoration> _lineDecorations = [];
@@ -48,10 +50,17 @@ class CodeForgeController implements DeltaTextInputClient {
   Timer? _cclsRefreshTimer, _debounceTimer;
   Timer? _lspTypingTimer;
   static const Duration _lspTypingDebounce = Duration(milliseconds: 300);
-  String? _cachedText, _bufferLineText, _openedFile, _lastSentText;
+  String? _cachedText, _bufferLineText, _openedFile;
+  String _imeProjectionText = '';
   String _previousValue = "";
   TextSelection _prevSelection = const TextSelection.collapsed(offset: 0);
+  TextSelection _imeProjectionSelection = const TextSelection.collapsed(
+    offset: 0,
+  );
   bool _bufferDirty = false, bufferNeedsRepaint = false, selectionOnly = false;
+  bool _imeProjectionDirty = true;
+  bool _imeSelectionNeedsResync = false;
+  int _imeProjectionStartOffset = 0;
   int _bufferLineRopeStart = 0, _bufferLineOriginalLength = 0;
   List<String>? _cachedBufferLines;
   int _cachedTextVersion = -1, _currentVersion = 0, _semanticTokensVersion = 0;
@@ -446,7 +455,20 @@ class CodeForgeController implements DeltaTextInputClient {
 
   Rope _rope = Rope('');
   Rope get rope => _rope;
-  TextSelection _selection = const TextSelection.collapsed(offset: 0);
+  TextSelection _selectionCache = const TextSelection.collapsed(offset: 0);
+
+  TextSelection get _selection {
+    final currentSelection = _rope.selection;
+    if (_selectionCache != currentSelection) {
+      _selectionCache = currentSelection;
+    }
+    return _selectionCache;
+  }
+
+  set _selection(TextSelection value) {
+    _selectionCache = value;
+    _rope.setSelection(value);
+  }
 
   /// The text input connection to the platform.
   TextInputConnection? connection;
@@ -782,7 +804,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
     multiCursorsChanged = true;
     dirtyRegion = TextRange(start: 0, end: _rope.length);
-    _syncToConnection();
+    _scheduleSyncToConnection();
     notifyListeners();
   }
 
@@ -852,7 +874,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
     multiCursorsChanged = true;
     dirtyRegion = TextRange(start: 0, end: _rope.length);
-    _syncToConnection();
+    _scheduleSyncToConnection();
     notifyListeners();
   }
 
@@ -1998,6 +2020,8 @@ class CodeForgeController implements DeltaTextInputClient {
     _rope = Rope(newText);
     _currentVersion++;
     _selection = TextSelection.collapsed(offset: newText.length);
+    _lastSentSelection = _selection;
+    _imeProjectionDirty = true;
     dirtyRegion = TextRange(start: 0, end: newText.length);
     _isTyping = false;
     notifyListeners();
@@ -2015,14 +2039,9 @@ class CodeForgeController implements DeltaTextInputClient {
     _selection = newSelection;
     selectionOnly = true;
     _isTyping = false;
+    _imeProjectionDirty = true;
 
-    if (connection != null && connection!.attached) {
-      _lastSentText = text;
-      _lastSentSelection = newSelection;
-      connection!.setEditingState(
-        TextEditingValue(text: _lastSentText!, selection: newSelection),
-      );
-    }
+    _scheduleSyncToConnection();
 
     notifyListeners();
   }
@@ -2047,6 +2066,7 @@ class CodeForgeController implements DeltaTextInputClient {
     _selection = newSelection;
     selectionOnly = true;
     _isTyping = false;
+    _imeProjectionDirty = true;
 
     _scheduleSyncToConnection();
     notifyListeners();
@@ -2069,13 +2089,7 @@ class CodeForgeController implements DeltaTextInputClient {
     selectionOnly = true;
     _isTyping = false;
 
-    if (connection != null && connection!.attached) {
-      _lastSentText = text;
-      _lastSentSelection = newSelection;
-      connection!.setEditingState(
-        TextEditingValue(text: _lastSentText!, selection: newSelection),
-      );
-    }
+    _scheduleSyncToConnection();
 
     notifyListeners();
   }
@@ -2202,23 +2216,26 @@ class CodeForgeController implements DeltaTextInputClient {
   void updateEditingValueWithDeltas(List<TextEditingDelta> textEditingDeltas) {
     if (readOnly) return;
 
+    _ensureImeProjection();
     bool typingDetected = false;
 
     for (final delta in textEditingDeltas) {
       if (delta is TextEditingDeltaNonTextUpdate) {
         if (_lastSentSelection == null ||
             delta.selection != _lastSentSelection) {
-          _selection = delta.selection;
+          _selection = _localImeSelectionToGlobal(delta.selection);
         }
         _lastSentSelection = null;
-        _lastSentText = null;
+        _imeSelectionNeedsResync = false;
         continue;
       }
 
       _lastSentSelection = null;
-      _lastSentText = null;
 
       if (delta is TextEditingDeltaInsertion) {
+        final useCurrentSelection = _imeSelectionNeedsResync;
+        _imeSelectionNeedsResync = false;
+
         if (delta.textInserted == '\n' &&
             suggestionsNotifier.value != null &&
             _isMobile &&
@@ -2240,22 +2257,39 @@ class CodeForgeController implements DeltaTextInputClient {
                 _isCompletionTriggerChar(delta.textInserted))) {
           typingDetected = true;
         }
+        final insertionOffset = useCurrentSelection
+            ? _selection.extentOffset
+            : _localImeOffsetToGlobal(delta.insertionOffset);
+        final insertionSelection = useCurrentSelection
+            ? TextSelection.collapsed(
+                offset: insertionOffset + delta.textInserted.length,
+              )
+            : _localImeSelectionToGlobal(delta.selection);
         _handleInsertion(
-          delta.insertionOffset,
+          insertionOffset,
           delta.textInserted,
-          delta.selection,
+          insertionSelection,
         );
       } else if (delta is TextEditingDeltaDeletion) {
-        _handleDeletion(delta.deletedRange, delta.selection);
+        _handleDeletion(
+          TextRange(
+            start: _localImeOffsetToGlobal(delta.deletedRange.start),
+            end: _localImeOffsetToGlobal(delta.deletedRange.end),
+          ),
+          _localImeSelectionToGlobal(delta.selection),
+        );
       } else if (delta is TextEditingDeltaReplacement) {
         if (delta.replacementText.isNotEmpty &&
             _isAlpha(delta.replacementText)) {
           typingDetected = true;
         }
         _handleReplacement(
-          delta.replacedRange,
+          TextRange(
+            start: _localImeOffsetToGlobal(delta.replacedRange.start),
+            end: _localImeOffsetToGlobal(delta.replacedRange.end),
+          ),
           delta.replacementText,
-          delta.selection,
+          _localImeSelectionToGlobal(delta.selection),
         );
       }
     }
@@ -2331,13 +2365,103 @@ class CodeForgeController implements DeltaTextInputClient {
 
   void _syncToConnection() {
     if (connection != null && connection!.attached) {
-      final currentText = text;
-      _lastSentText = currentText;
-      _lastSentSelection = _selection;
+      _ensureImeProjection();
+      _lastSentSelection = _imeProjectionSelection;
       connection!.setEditingState(
-        TextEditingValue(text: currentText, selection: _selection),
+        TextEditingValue(
+          text: _imeProjectionText,
+          selection: _imeProjectionSelection,
+        ),
       );
     }
+  }
+
+  void _invalidateImeSnapshotAndScheduleSync() {
+    _imeProjectionDirty = true;
+    _syncToConnection();
+  }
+
+  void _ensureImeProjection() {
+    if (!_imeProjectionDirty) return;
+
+    final selection = _selection;
+    final documentLength = _rope.length;
+    if (documentLength == 0) {
+      _imeProjectionStartOffset = 0;
+      _imeProjectionText = '';
+      _imeProjectionSelection = const TextSelection.collapsed(offset: 0);
+      _imeProjectionDirty = false;
+      return;
+    }
+
+    final selectionStart = selection.start.clamp(0, documentLength);
+    final selectionEnd = selection.end.clamp(selectionStart, documentLength);
+    final caretOffset = selection.extentOffset.clamp(0, documentLength);
+    final selectionLine = getLineAtOffset(caretOffset);
+    final lineStart = (selectionLine - _imeProjectionLineRadius).clamp(
+      0,
+      lineCount - 1,
+    );
+    final lineEnd = (selectionLine + _imeProjectionLineRadius).clamp(
+      0,
+      lineCount - 1,
+    );
+
+    final parts = <String>[];
+    for (int line = lineStart; line <= lineEnd; line++) {
+      parts.add(getLineText(line));
+    }
+
+    var projectionText = parts.join('\n');
+    var projectionStartOffset = getLineStartOffset(lineStart);
+
+    if (projectionText.length > _imeProjectionMaxChars) {
+      final halfWindow = _imeProjectionMaxChars ~/ 2;
+      final desiredStart = caretOffset - halfWindow;
+      projectionStartOffset = desiredStart < 0 ? 0 : desiredStart;
+      if (selectionStart < projectionStartOffset) {
+        projectionStartOffset = selectionStart;
+      }
+      final selectionTail = selectionEnd + halfWindow;
+      final projectionEndOffset = (projectionStartOffset + _imeProjectionMaxChars)
+          .clamp(0, documentLength);
+      if (selectionTail > projectionEndOffset) {
+        projectionStartOffset = (selectionTail - _imeProjectionMaxChars)
+            .clamp(0, documentLength);
+      }
+      final projectionEnd = (projectionStartOffset + _imeProjectionMaxChars)
+          .clamp(0, documentLength);
+      projectionText = _rope.substring(projectionStartOffset, projectionEnd);
+    }
+
+    final localBase = (selection.baseOffset - projectionStartOffset).clamp(
+      0,
+      projectionText.length,
+    );
+    final localExtent = (selection.extentOffset - projectionStartOffset).clamp(
+      0,
+      projectionText.length,
+    );
+
+    _imeProjectionStartOffset = projectionStartOffset;
+    _imeProjectionText = projectionText;
+    _imeProjectionSelection = TextSelection(
+      baseOffset: localBase,
+      extentOffset: localExtent,
+    );
+    _imeProjectionDirty = false;
+  }
+
+  int _localImeOffsetToGlobal(int localOffset) {
+    _ensureImeProjection();
+    return (_imeProjectionStartOffset + localOffset).clamp(0, _rope.length);
+  }
+
+  TextSelection _localImeSelectionToGlobal(TextSelection localSelection) {
+    return TextSelection(
+      baseOffset: _localImeOffsetToGlobal(localSelection.baseOffset),
+      extentOffset: _localImeOffsetToGlobal(localSelection.extentOffset),
+    );
   }
 
   /// Remove the selection or last char if the selection is empty (backspace key)
@@ -2418,7 +2542,8 @@ class CodeForgeController implements DeltaTextInputClient {
                 selectionBefore,
                 _selection,
               );
-              _syncToConnection();
+              _imeSelectionNeedsResync = true;
+              _invalidateImeSnapshotAndScheduleSync();
               notifyListeners();
               return;
             }
@@ -2433,7 +2558,8 @@ class CodeForgeController implements DeltaTextInputClient {
       dirtyLine = _rope.getLineAtOffset(sel.start);
 
       _recordDeletion(sel.start, deletedText, selectionBefore, _selection);
-      _syncToConnection();
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       notifyListeners();
       return;
     }
@@ -2463,7 +2589,8 @@ class CodeForgeController implements DeltaTextInputClient {
       lineStructureChanged = true;
 
       _recordDeletion(deleteOffset, '\n', selectionBefore, _selection);
-      _syncToConnection();
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       notifyListeners();
       return;
     }
@@ -2483,7 +2610,8 @@ class CodeForgeController implements DeltaTextInputClient {
         bufferNeedsRepaint = true;
 
         _recordDeletion(deleteOffset, deletedText, selectionBefore, _selection);
-        _scheduleSyncToConnection();
+        _imeSelectionNeedsResync = true;
+        _invalidateImeSnapshotAndScheduleSync();
         _scheduleFlush();
         notifyListeners();
         return;
@@ -2509,7 +2637,8 @@ class CodeForgeController implements DeltaTextInputClient {
       bufferNeedsRepaint = true;
 
       _recordDeletion(deleteOffset, deletedText, selectionBefore, _selection);
-      _scheduleSyncToConnection();
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       _scheduleFlush();
       notifyListeners();
     }
@@ -2593,7 +2722,7 @@ class CodeForgeController implements DeltaTextInputClient {
                 selectionBefore,
                 _selection,
               );
-              _syncToConnection();
+              _invalidateImeSnapshotAndScheduleSync();
               notifyListeners();
               return;
             }
@@ -2608,7 +2737,7 @@ class CodeForgeController implements DeltaTextInputClient {
       dirtyLine = _rope.getLineAtOffset(sel.start);
 
       _recordDeletion(sel.start, deletedText, selectionBefore, _selection);
-      _syncToConnection();
+      _invalidateImeSnapshotAndScheduleSync();
       notifyListeners();
       return;
     }
@@ -2638,7 +2767,7 @@ class CodeForgeController implements DeltaTextInputClient {
       lineStructureChanged = true;
 
       _recordDeletion(deleteOffset, '\n', selectionBefore, _selection);
-      _syncToConnection();
+      _invalidateImeSnapshotAndScheduleSync();
       notifyListeners();
       return;
     }
@@ -2657,7 +2786,8 @@ class CodeForgeController implements DeltaTextInputClient {
         bufferNeedsRepaint = true;
 
         _recordDeletion(deleteOffset, deletedText, selectionBefore, _selection);
-        _scheduleSyncToConnection();
+        _imeSelectionNeedsResync = true;
+        _invalidateImeSnapshotAndScheduleSync();
         _scheduleFlush();
         notifyListeners();
         return;
@@ -2682,7 +2812,8 @@ class CodeForgeController implements DeltaTextInputClient {
       bufferNeedsRepaint = true;
 
       _recordDeletion(deleteOffset, deletedText, selectionBefore, _selection);
-      _scheduleSyncToConnection();
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       _scheduleFlush();
       notifyListeners();
     }
@@ -2731,7 +2862,15 @@ class CodeForgeController implements DeltaTextInputClient {
   @protected
   @override
   TextEditingValue? get currentTextEditingValue =>
-      TextEditingValue(text: text, selection: _selection);
+      _buildCurrentImeEditingValue();
+
+  TextEditingValue _buildCurrentImeEditingValue() {
+    _ensureImeProjection();
+    return TextEditingValue(
+      text: _imeProjectionText,
+      selection: _imeProjectionSelection,
+    );
+  }
 
   @protected
   @override
@@ -2775,9 +2914,47 @@ class CodeForgeController implements DeltaTextInputClient {
   @protected
   @override
   void updateEditingValue(TextEditingValue value) {
-    text = value.text;
-    selection = value.selection;
-    dirtyRegion = TextRange(start: 0, end: value.text.length);
+    if (readOnly) return;
+
+    _ensureImeProjection();
+
+    final currentText = _imeProjectionText;
+    final nextText = value.text;
+
+    if (currentText != nextText) {
+      int prefixLength = 0;
+      final maxPrefix = currentText.length < nextText.length
+          ? currentText.length
+          : nextText.length;
+      while (prefixLength < maxPrefix &&
+          currentText.codeUnitAt(prefixLength) == nextText.codeUnitAt(prefixLength)) {
+        prefixLength++;
+      }
+
+      int suffixLength = 0;
+      final currentTail = currentText.length - prefixLength;
+      final nextTail = nextText.length - prefixLength;
+      while (suffixLength < currentTail &&
+          suffixLength < nextTail &&
+          currentText.codeUnitAt(currentText.length - suffixLength - 1) ==
+              nextText.codeUnitAt(nextText.length - suffixLength - 1)) {
+        suffixLength++;
+      }
+
+      final replaceStart = _imeProjectionStartOffset + prefixLength;
+      final replaceEnd =
+          _imeProjectionStartOffset + currentText.length - suffixLength;
+      final replacement = nextText.substring(
+        prefixLength,
+        nextText.length - suffixLength,
+      );
+
+      replaceRange(replaceStart, replaceEnd, replacement);
+    }
+
+    _selection = _localImeSelectionToGlobal(value.selection);
+    _imeProjectionDirty = true;
+    dirtyRegion = TextRange(start: 0, end: _rope.length);
     dirtyLine = null;
     notifyListeners();
   }
@@ -2833,43 +3010,24 @@ class CodeForgeController implements DeltaTextInputClient {
     _flushBuffer();
     final safeStart = start.clamp(0, _rope.length);
     final safeEnd = end.clamp(safeStart, _rope.length);
-    final deletedText = safeStart < safeEnd
-        ? _rope.substring(safeStart, safeEnd)
-        : '';
+    final deletedText = safeStart < safeEnd ? _rope.substring(safeStart, safeEnd) : '';
 
-    if (safeStart < safeEnd) {
-      _rope.delete(safeStart, safeEnd);
-    }
-    if (replacement.isNotEmpty) {
-      _rope.insert(safeStart, replacement);
-    }
+    final result = _rope.core.replaceRangeAndUpdateSelection(
+      start: BigInt.from(safeStart),
+      end: BigInt.from(safeEnd),
+      replacement: replacement,
+      preserveOldCursor: preserveOldCursor,
+      oldBase: BigInt.from(selectionBefore.baseOffset),
+      oldExtent: BigInt.from(selectionBefore.extentOffset),
+    );
     _currentVersion++;
-    TextSelection newSelection;
-    if (preserveOldCursor) {
-      final delta = replacement.length - (safeEnd - safeStart);
-
-      int mapOffset(int offset) {
-        if (offset <= safeStart) return offset;
-        if (offset >= safeEnd) return (offset + delta).clamp(0, _rope.length);
-        final relative = offset - safeStart;
-        final mapped = safeStart + relative.clamp(0, replacement.length);
-        return mapped.clamp(0, _rope.length);
-      }
-
-      final base = mapOffset(selectionBefore.baseOffset);
-      final extent = mapOffset(selectionBefore.extentOffset);
-      newSelection = TextSelection(baseOffset: base, extentOffset: extent);
-    } else {
-      newSelection = TextSelection.collapsed(
-        offset: safeStart + replacement.length,
-      );
-    }
+    final newSelection = TextSelection(
+      baseOffset: result.baseOffset.toInt(),
+      extentOffset: result.extentOffset.toInt(),
+    );
     _selection = newSelection;
     dirtyLine = _rope.getLineAtOffset(safeStart);
-    dirtyRegion = TextRange(
-      start: safeStart,
-      end: safeStart + replacement.length,
-    );
+    dirtyRegion = TextRange(start: safeStart, end: safeStart + replacement.length);
 
     if (deletedText.isNotEmpty && replacement.isNotEmpty) {
       _recordReplacement(
@@ -2885,13 +3043,7 @@ class CodeForgeController implements DeltaTextInputClient {
       _recordInsertion(safeStart, replacement, selectionBefore, _selection);
     }
 
-    if (connection != null && connection!.attached) {
-      _lastSentText = text;
-      _lastSentSelection = _selection;
-      connection!.setEditingState(
-        TextEditingValue(text: _lastSentText!, selection: _selection),
-      );
-    }
+    _invalidateImeSnapshotAndScheduleSync();
 
     notifyListeners();
   }
@@ -3800,7 +3952,7 @@ class CodeForgeController implements DeltaTextInputClient {
         return;
     }
 
-    _syncToConnection();
+    _invalidateImeSnapshotAndScheduleSync();
     notifyListeners();
   }
 
@@ -3923,7 +4075,7 @@ class CodeForgeController implements DeltaTextInputClient {
     }
 
     final selectionBefore = _selection;
-    final currentLength = text.length;
+    final currentLength = _rope.length;
     if (offset < 0 || offset > currentLength) {
       return;
     }
@@ -3942,8 +4094,8 @@ class CodeForgeController implements DeltaTextInputClient {
         actualInsertedText = '$char$closing';
         actualSelection = TextSelection.collapsed(offset: offset + 1);
       } else if (closers.contains(char)) {
-        final currentText = text;
-        if (offset < currentText.length && currentText[offset] == char) {
+        if (offset < _rope.length &&
+            _rope.substring(offset, offset + 1) == char) {
           _selection = TextSelection.collapsed(offset: offset + 1);
           notifyListeners();
           return;
@@ -4053,13 +4205,7 @@ class CodeForgeController implements DeltaTextInputClient {
           actualSelection,
         );
 
-        if (connection != null && connection!.attached) {
-          _lastSentText = text;
-          _lastSentSelection = _selection;
-          connection!.setEditingState(
-            TextEditingValue(text: _lastSentText!, selection: _selection),
-          );
-        }
+        _invalidateImeSnapshotAndScheduleSync();
 
         _scheduleFlush();
         notifyListeners();
@@ -4084,13 +4230,7 @@ class CodeForgeController implements DeltaTextInputClient {
         actualSelection,
       );
 
-      if (connection != null && connection!.attached) {
-        _lastSentText = text;
-        _lastSentSelection = _selection;
-        connection!.setEditingState(
-          TextEditingValue(text: _lastSentText!, selection: _selection),
-        );
-      }
+      _invalidateImeSnapshotAndScheduleSync();
 
       notifyListeners();
       return;
@@ -4121,13 +4261,7 @@ class CodeForgeController implements DeltaTextInputClient {
               actualSelection,
             );
 
-            if (connection != null && connection!.attached) {
-              _lastSentText = text;
-              _lastSentSelection = _selection;
-              connection!.setEditingState(
-                TextEditingValue(text: _lastSentText!, selection: _selection),
-              );
-            }
+            _invalidateImeSnapshotAndScheduleSync();
 
             _scheduleFlush();
             notifyListeners();
@@ -4161,13 +4295,7 @@ class CodeForgeController implements DeltaTextInputClient {
           actualSelection,
         );
 
-        if (connection != null && connection!.attached) {
-          _lastSentText = text;
-          _lastSentSelection = _selection;
-          connection!.setEditingState(
-            TextEditingValue(text: _lastSentText!, selection: _selection),
-          );
-        }
+        _invalidateImeSnapshotAndScheduleSync();
 
         _scheduleFlush();
         notifyListeners();
@@ -4276,6 +4404,8 @@ class CodeForgeController implements DeltaTextInputClient {
               selectionBefore,
               newSelection,
             );
+            _imeSelectionNeedsResync = true;
+            _invalidateImeSnapshotAndScheduleSync();
             return;
           }
 
@@ -4294,6 +4424,8 @@ class CodeForgeController implements DeltaTextInputClient {
             newSelection,
           );
 
+            _imeSelectionNeedsResync = true;
+          _invalidateImeSnapshotAndScheduleSync();
           _scheduleFlush();
           return;
         }
@@ -4327,6 +4459,8 @@ class CodeForgeController implements DeltaTextInputClient {
       dirtyRegion = TextRange(start: range.start, end: range.start);
 
       _recordDeletion(range.start, deletedText, selectionBefore, newSelection);
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       return;
     }
 
@@ -4350,6 +4484,8 @@ class CodeForgeController implements DeltaTextInputClient {
 
       _recordDeletion(range.start, deletedText, selectionBefore, newSelection);
 
+      _imeSelectionNeedsResync = true;
+      _invalidateImeSnapshotAndScheduleSync();
       _scheduleFlush();
     }
   }
@@ -4382,6 +4518,8 @@ class CodeForgeController implements DeltaTextInputClient {
       selectionBefore,
       newSelection,
     );
+    _imeSelectionNeedsResync = true;
+    _invalidateImeSnapshotAndScheduleSync();
   }
 
   void _initBuffer(int lineIndex) {

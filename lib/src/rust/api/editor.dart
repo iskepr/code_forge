@@ -9,7 +9,7 @@ import 'rope.dart';
 
 // These functions are ignored because they are not marked as `pub`: `contains_same_tag_closing`, `contains_same_tag_opening`, `extract_opening_tag_name`, `find_matching_bracket_in_rope`, `find_matching_closing_tag_line`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `LineBlock`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add_summary`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `summary`, `zero`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add_summary`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `summary`, `zero`
 
 Future<List<RustFoldRange>> foldsComputeAll({required RopeBridge rope}) =>
     RustLib.instance.api.crateApiEditorFoldsComputeAll(rope: rope);
@@ -20,6 +20,30 @@ PlatformInt64 foldsFindMatchingBracket({
 }) => RustLib.instance.api.crateApiEditorFoldsFindMatchingBracket(
   rope: rope,
   targetOffset: targetOffset,
+);
+
+VisibleLineRange visibleLineRangeUnwrapped({
+  required int totalLines,
+  required double viewTop,
+  required double viewBottom,
+  required double lineHeight,
+}) => RustLib.instance.api.crateApiEditorVisibleLineRangeUnwrapped(
+  totalLines: totalLines,
+  viewTop: viewTop,
+  viewBottom: viewBottom,
+  lineHeight: lineHeight,
+);
+
+ViewportFrame buildViewportFrame({
+  required RopeBridge rope,
+  required double viewTop,
+  required double viewBottom,
+  required double lineHeight,
+}) => RustLib.instance.api.crateApiEditorBuildViewportFrame(
+  rope: rope,
+  viewTop: viewTop,
+  viewBottom: viewBottom,
+  lineHeight: lineHeight,
 );
 
 List<GuideBlock> guidesComputeViewport({
@@ -124,4 +148,60 @@ class RustFoldRange {
           runtimeType == other.runtimeType &&
           startLine == other.startLine &&
           endLine == other.endLine;
+}
+
+class ViewportFrame {
+  final int firstLine;
+  final int lastLine;
+  final double firstLineY;
+  final List<LineSummary> lines;
+
+  const ViewportFrame({
+    required this.firstLine,
+    required this.lastLine,
+    required this.firstLineY,
+    required this.lines,
+  });
+
+  @override
+  int get hashCode =>
+      firstLine.hashCode ^
+      lastLine.hashCode ^
+      firstLineY.hashCode ^
+      lines.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ViewportFrame &&
+          runtimeType == other.runtimeType &&
+          firstLine == other.firstLine &&
+          lastLine == other.lastLine &&
+          firstLineY == other.firstLineY &&
+          lines == other.lines;
+}
+
+class VisibleLineRange {
+  final int firstLine;
+  final int lastLine;
+  final double firstLineY;
+
+  const VisibleLineRange({
+    required this.firstLine,
+    required this.lastLine,
+    required this.firstLineY,
+  });
+
+  @override
+  int get hashCode =>
+      firstLine.hashCode ^ lastLine.hashCode ^ firstLineY.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is VisibleLineRange &&
+          runtimeType == other.runtimeType &&
+          firstLine == other.firstLine &&
+          lastLine == other.lastLine &&
+          firstLineY == other.firstLineY;
 }

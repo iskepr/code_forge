@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1740630692;
+  int get rustContentHash => 1274432317;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -165,6 +165,24 @@ abstract class RustLibApi extends BaseApi {
     required BigInt end,
   });
 
+  SelectionState crateApiRopeRopeBridgeReplaceRangeAndUpdateSelection({
+    required RopeBridge that,
+    required BigInt start,
+    required BigInt end,
+    required String replacement,
+    required bool preserveOldCursor,
+    required BigInt oldBase,
+    required BigInt oldExtent,
+  });
+
+  SelectionState crateApiRopeRopeBridgeSelection({required RopeBridge that});
+
+  void crateApiRopeRopeBridgeSetSelection({
+    required RopeBridge that,
+    required BigInt baseOffset,
+    required BigInt extentOffset,
+  });
+
   String crateApiRopeRopeBridgeSlice({
     required RopeBridge that,
     required BigInt start,
@@ -172,6 +190,13 @@ abstract class RustLibApi extends BaseApi {
   });
 
   TextDirection crateApiRopeRopeBridgeTextDirection({required RopeBridge that});
+
+  ViewportFrame crateApiEditorBuildViewportFrame({
+    required RopeBridge rope,
+    required double viewTop,
+    required double viewBottom,
+    required double lineHeight,
+  });
 
   Future<List<RustFoldRange>> crateApiEditorFoldsComputeAll({
     required RopeBridge rope,
@@ -192,6 +217,13 @@ abstract class RustLibApi extends BaseApi {
   Future<void> crateApiEditorInitApp();
 
   Future<LineSummary> crateApiEditorLineSummaryDefault();
+
+  VisibleLineRange crateApiEditorVisibleLineRangeUnwrapped({
+    required int totalLines,
+    required double viewTop,
+    required double viewBottom,
+    required double lineHeight,
+  });
 
   List<String> crateApiEditorWordsExtract({required RopeBridge rope});
 
@@ -875,6 +907,131 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  SelectionState crateApiRopeRopeBridgeReplaceRangeAndUpdateSelection({
+    required RopeBridge that,
+    required BigInt start,
+    required BigInt end,
+    required String replacement,
+    required bool preserveOldCursor,
+    required BigInt oldBase,
+    required BigInt oldExtent,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
+            that,
+            serializer,
+          );
+          sse_encode_usize(start, serializer);
+          sse_encode_usize(end, serializer);
+          sse_encode_String(replacement, serializer);
+          sse_encode_bool(preserveOldCursor, serializer);
+          sse_encode_usize(oldBase, serializer);
+          sse_encode_usize(oldExtent, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_selection_state,
+          decodeErrorData: null,
+        ),
+        constMeta:
+            kCrateApiRopeRopeBridgeReplaceRangeAndUpdateSelectionConstMeta,
+        argValues: [
+          that,
+          start,
+          end,
+          replacement,
+          preserveOldCursor,
+          oldBase,
+          oldExtent,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateApiRopeRopeBridgeReplaceRangeAndUpdateSelectionConstMeta =>
+      const TaskConstMeta(
+        debugName: "RopeBridge_replace_range_and_update_selection",
+        argNames: [
+          "that",
+          "start",
+          "end",
+          "replacement",
+          "preserveOldCursor",
+          "oldBase",
+          "oldExtent",
+        ],
+      );
+
+  @override
+  SelectionState crateApiRopeRopeBridgeSelection({required RopeBridge that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 23)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_selection_state,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRopeRopeBridgeSelectionConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRopeRopeBridgeSelectionConstMeta =>
+      const TaskConstMeta(
+        debugName: "RopeBridge_selection",
+        argNames: ["that"],
+      );
+
+  @override
+  void crateApiRopeRopeBridgeSetSelection({
+    required RopeBridge that,
+    required BigInt baseOffset,
+    required BigInt extentOffset,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
+            that,
+            serializer,
+          );
+          sse_encode_usize(baseOffset, serializer);
+          sse_encode_usize(extentOffset, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRopeRopeBridgeSetSelectionConstMeta,
+        argValues: [that, baseOffset, extentOffset],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRopeRopeBridgeSetSelectionConstMeta =>
+      const TaskConstMeta(
+        debugName: "RopeBridge_set_selection",
+        argNames: ["that", "baseOffset", "extentOffset"],
+      );
+
+  @override
   String crateApiRopeRopeBridgeSlice({
     required RopeBridge that,
     required BigInt start,
@@ -890,7 +1047,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(start, serializer);
           sse_encode_usize(end, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -921,7 +1078,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 23)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_text_direction,
@@ -941,6 +1098,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  ViewportFrame crateApiEditorBuildViewportFrame({
+    required RopeBridge rope,
+    required double viewTop,
+    required double viewBottom,
+    required double lineHeight,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
+            rope,
+            serializer,
+          );
+          sse_encode_f_64(viewTop, serializer);
+          sse_encode_f_64(viewBottom, serializer);
+          sse_encode_f_64(lineHeight, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_viewport_frame,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorBuildViewportFrameConstMeta,
+        argValues: [rope, viewTop, viewBottom, lineHeight],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorBuildViewportFrameConstMeta =>
+      const TaskConstMeta(
+        debugName: "build_viewport_frame",
+        argNames: ["rope", "viewTop", "viewBottom", "lineHeight"],
+      );
+
+  @override
   Future<List<RustFoldRange>> crateApiEditorFoldsComputeAll({
     required RopeBridge rope,
   }) {
@@ -955,7 +1149,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 28,
             port: port_,
           );
         },
@@ -987,7 +1181,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_i_32(targetOffset, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_i_64,
@@ -1024,7 +1218,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_usize(firstVisible, serializer);
           sse_encode_usize(lastVisible, serializer);
           sse_encode_usize(tabSize, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_guide_block,
@@ -1052,7 +1246,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1079,7 +1273,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1098,6 +1292,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "line_summary_default", argNames: []);
 
   @override
+  VisibleLineRange crateApiEditorVisibleLineRangeUnwrapped({
+    required int totalLines,
+    required double viewTop,
+    required double viewBottom,
+    required double lineHeight,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_i_32(totalLines, serializer);
+          sse_encode_f_64(viewTop, serializer);
+          sse_encode_f_64(viewBottom, serializer);
+          sse_encode_f_64(lineHeight, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_visible_line_range,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorVisibleLineRangeUnwrappedConstMeta,
+        argValues: [totalLines, viewTop, viewBottom, lineHeight],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorVisibleLineRangeUnwrappedConstMeta =>
+      const TaskConstMeta(
+        debugName: "visible_line_range_unwrapped",
+        argNames: ["totalLines", "viewTop", "viewBottom", "lineHeight"],
+      );
+
+  @override
   List<String> crateApiEditorWordsExtract({required RopeBridge rope}) {
     return handler.executeSync(
       SyncTask(
@@ -1107,7 +1335,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             rope,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
@@ -1225,6 +1453,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  double dco_decode_f_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as double;
+  }
+
+  @protected
   GuideBlock dco_decode_guide_block(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1282,6 +1516,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<LineSummary> dco_decode_list_line_summary(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_line_summary).toList();
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -1302,6 +1542,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return RustFoldRange(
       startLine: dco_decode_i_32(arr[0]),
       endLine: dco_decode_i_32(arr[1]),
+    );
+  }
+
+  @protected
+  SelectionState dco_decode_selection_state(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SelectionState(
+      baseOffset: dco_decode_usize(arr[0]),
+      extentOffset: dco_decode_usize(arr[1]),
     );
   }
 
@@ -1327,6 +1579,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt dco_decode_usize(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeU64(raw);
+  }
+
+  @protected
+  ViewportFrame dco_decode_viewport_frame(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ViewportFrame(
+      firstLine: dco_decode_i_32(arr[0]),
+      lastLine: dco_decode_i_32(arr[1]),
+      firstLineY: dco_decode_f_64(arr[2]),
+      lines: dco_decode_list_line_summary(arr[3]),
+    );
+  }
+
+  @protected
+  VisibleLineRange dco_decode_visible_line_range(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return VisibleLineRange(
+      firstLine: dco_decode_i_32(arr[0]),
+      lastLine: dco_decode_i_32(arr[1]),
+      firstLineY: dco_decode_f_64(arr[2]),
+    );
   }
 
   @protected
@@ -1434,6 +1713,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  double sse_decode_f_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getFloat64();
+  }
+
+  @protected
   GuideBlock sse_decode_guide_block(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_startLine = sse_decode_i_32(deserializer);
@@ -1512,6 +1797,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<LineSummary> sse_decode_list_line_summary(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <LineSummary>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_line_summary(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1541,6 +1838,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SelectionState sse_decode_selection_state(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_baseOffset = sse_decode_usize(deserializer);
+    var var_extentOffset = sse_decode_usize(deserializer);
+    return SelectionState(
+      baseOffset: var_baseOffset,
+      extentOffset: var_extentOffset,
+    );
+  }
+
+  @protected
   TextDirection sse_decode_text_direction(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -1562,6 +1870,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt sse_decode_usize(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getBigUint64();
+  }
+
+  @protected
+  ViewportFrame sse_decode_viewport_frame(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_firstLine = sse_decode_i_32(deserializer);
+    var var_lastLine = sse_decode_i_32(deserializer);
+    var var_firstLineY = sse_decode_f_64(deserializer);
+    var var_lines = sse_decode_list_line_summary(deserializer);
+    return ViewportFrame(
+      firstLine: var_firstLine,
+      lastLine: var_lastLine,
+      firstLineY: var_firstLineY,
+      lines: var_lines,
+    );
+  }
+
+  @protected
+  VisibleLineRange sse_decode_visible_line_range(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_firstLine = sse_decode_i_32(deserializer);
+    var var_lastLine = sse_decode_i_32(deserializer);
+    var var_firstLineY = sse_decode_f_64(deserializer);
+    return VisibleLineRange(
+      firstLine: var_firstLine,
+      lastLine: var_lastLine,
+      firstLineY: var_firstLineY,
+    );
   }
 
   @protected
@@ -1669,6 +2005,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_f_64(double self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putFloat64(self);
+  }
+
+  @protected
   void sse_encode_guide_block(GuideBlock self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.startLine, serializer);
@@ -1731,6 +2073,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_line_summary(
+    List<LineSummary> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_line_summary(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -1763,6 +2117,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_selection_state(
+    SelectionState self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(self.baseOffset, serializer);
+    sse_encode_usize(self.extentOffset, serializer);
+  }
+
+  @protected
   void sse_encode_text_direction(TextDirection self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -1783,6 +2147,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_usize(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putBigUint64(self);
+  }
+
+  @protected
+  void sse_encode_viewport_frame(ViewportFrame self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.firstLine, serializer);
+    sse_encode_i_32(self.lastLine, serializer);
+    sse_encode_f_64(self.firstLineY, serializer);
+    sse_encode_list_line_summary(self.lines, serializer);
+  }
+
+  @protected
+  void sse_encode_visible_line_range(
+    VisibleLineRange self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.firstLine, serializer);
+    sse_encode_i_32(self.lastLine, serializer);
+    sse_encode_f_64(self.firstLineY, serializer);
   }
 }
 
@@ -1907,6 +2291,36 @@ class RopeBridgeImpl extends RustOpaque implements RopeBridge {
       .instance
       .api
       .crateApiRopeRopeBridgeRemove(that: this, start: start, end: end);
+
+  SelectionState replaceRangeAndUpdateSelection({
+    required BigInt start,
+    required BigInt end,
+    required String replacement,
+    required bool preserveOldCursor,
+    required BigInt oldBase,
+    required BigInt oldExtent,
+  }) =>
+      RustLib.instance.api.crateApiRopeRopeBridgeReplaceRangeAndUpdateSelection(
+        that: this,
+        start: start,
+        end: end,
+        replacement: replacement,
+        preserveOldCursor: preserveOldCursor,
+        oldBase: oldBase,
+        oldExtent: oldExtent,
+      );
+
+  SelectionState selection() =>
+      RustLib.instance.api.crateApiRopeRopeBridgeSelection(that: this);
+
+  void setSelection({
+    required BigInt baseOffset,
+    required BigInt extentOffset,
+  }) => RustLib.instance.api.crateApiRopeRopeBridgeSetSelection(
+    that: this,
+    baseOffset: baseOffset,
+    extentOffset: extentOffset,
+  );
 
   String slice({required BigInt start, required BigInt end}) => RustLib
       .instance

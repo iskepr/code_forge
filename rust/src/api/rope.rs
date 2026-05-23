@@ -15,9 +15,16 @@ pub struct BiDiSegment {
     pub direction: TextDirection,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SelectionState {
+    pub base_offset: usize,
+    pub extent_offset: usize,
+}
+
 #[flutter_rust_bridge::frb(opaque)]
 pub struct RopeBridge {
     pub(crate) rope: RwLock<RustRope>,
+    selection: RwLock<SelectionState>,
 }
 
 impl RopeBridge {
@@ -25,7 +32,87 @@ impl RopeBridge {
     pub fn create(initial_text: String) -> Self {
         Self {
             rope: RwLock::new(RustRope::from_str(&initial_text)),
+            selection: RwLock::new(SelectionState {
+                base_offset: 0,
+                extent_offset: 0,
+            }),
         }
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn selection(&self) -> SelectionState {
+        *self.selection.read().unwrap()
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn set_selection(&self, base_offset: usize, extent_offset: usize) {
+        let len = self.rope.read().unwrap().len_chars();
+        let clamped_base = base_offset.min(len);
+        let clamped_extent = extent_offset.min(len);
+        *self.selection.write().unwrap() = SelectionState {
+            base_offset: clamped_base,
+            extent_offset: clamped_extent,
+        };
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn replace_range_and_update_selection(
+        &self,
+        start: usize,
+        end: usize,
+        replacement: String,
+        preserve_old_cursor: bool,
+        old_base: usize,
+        old_extent: usize,
+    ) -> SelectionState {
+        let mut rope_write = self.rope.write().unwrap();
+        let len = rope_write.len_chars();
+        let safe_start = start.min(len);
+        let safe_end = end.clamp(safe_start, len);
+
+        if safe_start < safe_end {
+            rope_write.remove(safe_start..safe_end);
+        }
+        if !replacement.is_empty() {
+            rope_write.insert(safe_start, &replacement);
+        }
+
+        let new_selection = if preserve_old_cursor {
+            let delta = replacement.len() as isize - (safe_end - safe_start) as isize;
+
+            let map_offset = |offset: usize| -> usize {
+                if offset <= safe_start {
+                    offset
+                } else if offset >= safe_end {
+                    let mapped = (offset as isize + delta) as isize;
+                    mapped.clamp(0, rope_write.len_chars() as isize) as usize
+                } else {
+                    let relative = offset.saturating_sub(safe_start);
+                    let mapped = safe_start + relative.min(replacement.len());
+                    mapped.min(rope_write.len_chars())
+                }
+            };
+
+            let base = map_offset(old_base);
+            let extent = map_offset(old_extent);
+            SelectionState {
+                base_offset: base,
+                extent_offset: extent,
+            }
+        } else {
+            SelectionState {
+                base_offset: safe_start + replacement.len(),
+                extent_offset: safe_start + replacement.len(),
+            }
+        };
+
+        // update stored selection
+        *self.selection.write().unwrap() = SelectionState {
+            base_offset: new_selection.base_offset.min(rope_write.len_chars()),
+            extent_offset: new_selection.extent_offset.min(rope_write.len_chars()),
+        };
+
+        *self.selection.read().unwrap()
     }
 
     #[flutter_rust_bridge::frb(sync)]
@@ -101,6 +188,7 @@ impl RopeBridge {
     pub fn copy(&self) -> Self {
         Self {
             rope: RwLock::new(self.rope.read().unwrap().clone()),
+            selection: RwLock::new(*self.selection.read().unwrap()),
         }
     }
 
@@ -164,7 +252,7 @@ impl RopeBridge {
 
     #[flutter_rust_bridge::frb(sync)]
     pub fn text_direction(&self) -> TextDirection {
-        let rope = self.rope.read().unwrap();
+        let rope: std::sync::RwLockReadGuard<'_, RustRope> = self.rope.read().unwrap();
         let mut has_rtl = false;
         let mut has_ltr = false;
         
@@ -186,17 +274,17 @@ impl RopeBridge {
 
     #[flutter_rust_bridge::frb(sync)]
     pub fn get_bidi_segments_in_range(&self, start: usize, end: usize) -> Vec<BiDiSegment> {
-        let rope = self.rope.read().unwrap();
+        let rope: std::sync::RwLockReadGuard<'_, RustRope> = self.rope.read().unwrap();
         compute_bidi_segments(&rope, start, end)
     }
     
     #[flutter_rust_bridge::frb(sync)]
     pub fn get_bidi_segments_for_line(&self, line_index: usize) -> Vec<BiDiSegment> {
-        let rope = self.rope.read().unwrap();
-        let valid_idx = line_index.min(rope.len_lines().saturating_sub(1));
-        let start = rope.line_to_char(valid_idx);
-        let line = rope.line(valid_idx);
-        let end = start + line.len_chars();
+        let rope: std::sync::RwLockReadGuard<'_, RustRope> = self.rope.read().unwrap();
+        let valid_idx: usize = line_index.min(rope.len_lines().saturating_sub(1));
+        let start: usize = rope.line_to_char(valid_idx);
+        let line: ropey::RopeSlice<'_> = rope.line(valid_idx);
+        let end: usize = start + line.len_chars();
         compute_bidi_segments(&rope, start, end)
     }
 
@@ -235,7 +323,7 @@ impl RopeBridge {
 }
 
 fn compute_bidi_segments(rope: &RustRope, start: usize, end: usize) -> Vec<BiDiSegment> {
-    let end = end.min(rope.len_chars());
+    let end: usize = end.min(rope.len_chars());
     if start >= end {
         return vec![];
     }

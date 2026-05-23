@@ -76,6 +76,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double dco_decode_f_32(dynamic raw);
 
   @protected
+  double dco_decode_f_64(dynamic raw);
+
+  @protected
   GuideBlock dco_decode_guide_block(dynamic raw);
 
   @protected
@@ -97,6 +100,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<GuideBlock> dco_decode_list_guide_block(dynamic raw);
 
   @protected
+  List<LineSummary> dco_decode_list_line_summary(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -104,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RustFoldRange dco_decode_rust_fold_range(dynamic raw);
+
+  @protected
+  SelectionState dco_decode_selection_state(dynamic raw);
 
   @protected
   TextDirection dco_decode_text_direction(dynamic raw);
@@ -116,6 +125,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt dco_decode_usize(dynamic raw);
+
+  @protected
+  ViewportFrame dco_decode_viewport_frame(dynamic raw);
+
+  @protected
+  VisibleLineRange dco_decode_visible_line_range(dynamic raw);
 
   @protected
   LayoutMap
@@ -166,6 +181,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double sse_decode_f_32(SseDeserializer deserializer);
 
   @protected
+  double sse_decode_f_64(SseDeserializer deserializer);
+
+  @protected
   GuideBlock sse_decode_guide_block(SseDeserializer deserializer);
 
   @protected
@@ -187,6 +205,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<GuideBlock> sse_decode_list_guide_block(SseDeserializer deserializer);
 
   @protected
+  List<LineSummary> sse_decode_list_line_summary(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -196,6 +217,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   RustFoldRange sse_decode_rust_fold_range(SseDeserializer deserializer);
+
+  @protected
+  SelectionState sse_decode_selection_state(SseDeserializer deserializer);
 
   @protected
   TextDirection sse_decode_text_direction(SseDeserializer deserializer);
@@ -208,6 +232,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   BigInt sse_decode_usize(SseDeserializer deserializer);
+
+  @protected
+  ViewportFrame sse_decode_viewport_frame(SseDeserializer deserializer);
+
+  @protected
+  VisibleLineRange sse_decode_visible_line_range(SseDeserializer deserializer);
 
   @protected
   void
@@ -264,6 +294,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_f_32(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
   void sse_encode_guide_block(GuideBlock self, SseSerializer serializer);
 
   @protected
@@ -291,6 +324,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_line_summary(
+    List<LineSummary> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -306,6 +345,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_rust_fold_range(RustFoldRange self, SseSerializer serializer);
 
   @protected
+  void sse_encode_selection_state(
+    SelectionState self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_text_direction(TextDirection self, SseSerializer serializer);
 
   @protected
@@ -316,6 +361,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_usize(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_viewport_frame(ViewportFrame self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_visible_line_range(
+    VisibleLineRange self,
+    SseSerializer serializer,
+  );
 }
 
 // Section: wire_class

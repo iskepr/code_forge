@@ -1,4 +1,5 @@
 import 'package:code_forge/src/rust/api/rope.dart';
+import 'package:flutter/material.dart';
 
 class Rope {
   final RopeBridge _rope;
@@ -57,6 +58,21 @@ class Rope {
 
   /// Creates a deep copy of this Rope
   Rope copy() => Rope._fromBridge(_rope.copy());
+
+  TextSelection get selection {
+    final currentSelection = _rope.selection();
+    return TextSelection(
+      baseOffset: currentSelection.baseOffset.toInt(),
+      extentOffset: currentSelection.extentOffset.toInt(),
+    );
+  }
+
+  void setSelection(TextSelection selection) {
+    _rope.setSelection(
+      baseOffset: BigInt.from(selection.baseOffset),
+      extentOffset: BigInt.from(selection.extentOffset),
+    );
+  }
 
   /// Returns the overall text direction of this rope
   TextDirection get textDirection {

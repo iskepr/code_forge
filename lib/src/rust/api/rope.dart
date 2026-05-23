@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `compute_bidi_segments`, `is_ltr_char`, `is_rtl_char`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RopeBridge>>
 abstract class RopeBridge implements RustOpaqueInterface {
@@ -56,6 +56,19 @@ abstract class RopeBridge implements RustOpaqueInterface {
 
   void remove({required BigInt start, required BigInt end});
 
+  SelectionState replaceRangeAndUpdateSelection({
+    required BigInt start,
+    required BigInt end,
+    required String replacement,
+    required bool preserveOldCursor,
+    required BigInt oldBase,
+    required BigInt oldExtent,
+  });
+
+  SelectionState selection();
+
+  void setSelection({required BigInt baseOffset, required BigInt extentOffset});
+
   String slice({required BigInt start, required BigInt end});
 
   TextDirection textDirection();
@@ -83,6 +96,24 @@ class BiDiSegment {
           start == other.start &&
           end == other.end &&
           direction == other.direction;
+}
+
+class SelectionState {
+  final BigInt baseOffset;
+  final BigInt extentOffset;
+
+  const SelectionState({required this.baseOffset, required this.extentOffset});
+
+  @override
+  int get hashCode => baseOffset.hashCode ^ extentOffset.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SelectionState &&
+          runtimeType == other.runtimeType &&
+          baseOffset == other.baseOffset &&
+          extentOffset == other.extentOffset;
 }
 
 enum TextDirection { ltr, rtl, mixed }

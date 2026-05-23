@@ -55,6 +55,9 @@ class SyntaxHighlighter {
   int _version = 0;
   int _documentVersion = 0;
   static const int isolateThreshold = 500;
+  static const int _cacheKeepMargin = 500;
+  static const int _maxLineCacheEntries = 6000;
+  static const int _maxSpanCacheEntries = 8000;
   int get documentVersion => _documentVersion;
 
   SyntaxHighlighter({
@@ -622,6 +625,8 @@ class SyntaxHighlighter {
     int endLine,
     String Function(int) getLineText,
   ) async {
+    _pruneCachesForViewport(startLine, endLine);
+
     final linesToProcess = <int, String>{};
 
     for (int i = startLine; i <= endLine; i++) {
@@ -664,6 +669,33 @@ class SyntaxHighlighter {
         textSpan,
         _version,
       );
+    }
+
+    _pruneCachesForViewport(startLine, endLine);
+  }
+
+  void _pruneCachesForViewport(int startLine, int endLine) {
+    final minKeep = (startLine - _cacheKeepMargin).clamp(0, 1 << 30);
+    final maxKeep = endLine + _cacheKeepMargin;
+
+    if (_grammarCache.length > _maxLineCacheEntries) {
+      _grammarCache.removeWhere(
+        (line, _) => line < minKeep || line > maxKeep,
+      );
+    }
+
+    if (_mergedCache.length > _maxLineCacheEntries) {
+      _mergedCache.removeWhere((line, _) => line < minKeep || line > maxKeep);
+    }
+
+    if (_lineSemanticSpans.length > _maxLineCacheEntries) {
+      _lineSemanticSpans.removeWhere(
+        (line, _) => line < minKeep || line > maxKeep,
+      );
+    }
+
+    if (_lineSpanCache.length > _maxSpanCacheEntries) {
+      _lineSpanCache.clear();
     }
   }
 

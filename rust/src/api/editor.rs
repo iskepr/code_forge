@@ -129,6 +129,107 @@ pub struct GuideBlock {
     pub leading_spaces: i32,
 }
 
+#[derive(Clone, Debug)]
+pub struct VisibleLineRange {
+    pub first_line: i32,
+    pub last_line: i32,
+    pub first_line_y: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ViewportFrame {
+    pub first_line: i32,
+    pub last_line: i32,
+    pub first_line_y: f64,
+    pub lines: Vec<LineSummary>,
+}
+
+#[frb(sync)]
+pub fn visible_line_range_unwrapped(
+    total_lines: i32,
+    view_top: f64,
+    view_bottom: f64,
+    line_height: f64,
+) -> VisibleLineRange {
+    if total_lines <= 0 {
+        return VisibleLineRange {
+            first_line: 0,
+            last_line: 0,
+            first_line_y: 0.0,
+        };
+    }
+
+    let safe_line_height = if line_height > 0.0 { line_height } else { 1.0 };
+    let max_line = total_lines - 1;
+
+    let first = (view_top / safe_line_height).floor() as i32;
+    let last = (view_bottom / safe_line_height).ceil() as i32;
+
+    let first_line = first.clamp(0, max_line);
+    let last_line = last.clamp(0, max_line);
+
+    VisibleLineRange {
+        first_line,
+        last_line,
+        first_line_y: first_line as f64 * safe_line_height,
+    }
+}
+
+#[frb(sync)]
+pub fn build_viewport_frame(
+    rope: &RopeBridge,
+    view_top: f64,
+    view_bottom: f64,
+    line_height: f64,
+) -> ViewportFrame {
+    let total_lines = rope.len_lines() as i32;
+    if total_lines <= 0 {
+        return ViewportFrame {
+            first_line: 0,
+            last_line: 0,
+            first_line_y: 0.0,
+            lines: Vec::new(),
+        };
+    }
+
+    let safe_line_height = if line_height > 0.0 { line_height } else { 1.0 };
+    let max_line = total_lines - 1;
+
+    let first = (view_top / safe_line_height).floor() as i32;
+    let last = (view_bottom / safe_line_height).ceil() as i32;
+
+    let first_line = first.clamp(0, max_line);
+    let last_line = last.clamp(0, max_line);
+
+    let mut lines: Vec<LineSummary> = Vec::new();
+    let rope_lock = rope.rope.read().unwrap();
+    for idx in first_line..=last_line {
+        let li = idx as usize;
+        if li < rope_lock.len_lines() {
+            let line_slice = rope_lock.line(li);
+            let len_chars = line_slice.len_chars();
+            lines.push(LineSummary {
+                len_chars,
+                height: safe_line_height as f32,
+                lines: 1,
+            });
+        } else {
+            lines.push(LineSummary {
+                len_chars: 0,
+                height: safe_line_height as f32,
+                lines: 1,
+            });
+        }
+    }
+
+    ViewportFrame {
+        first_line,
+        last_line,
+        first_line_y: first_line as f64 * safe_line_height,
+        lines,
+    }
+}
+
 #[frb(sync)]
 pub fn guides_compute_viewport(
     _rope: &RopeBridge,
