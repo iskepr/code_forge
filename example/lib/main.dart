@@ -5,7 +5,7 @@ import 'package:code_forge/code_forge.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:re_highlight/languages/dart.dart';
-import 'package:re_highlight/styles/atom-one-dark-reasonable.dart';
+import 'package:re_highlight/styles/github-dark.dart';
 
 Future<void> main() async {
   await RustLib.init();
@@ -21,7 +21,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final undoController = UndoRedoController();
-  final absFilePath = "/home/athul/Projects/code_forge/lib/code_forge/code_area.dart";
+  final absFilePath = p.join(Directory.current.path, "lib/example_code.dart");
   CodeForgeController? codeController;
 
   Future<LspConfig> getLsp() async {
@@ -75,7 +75,7 @@ class _MyAppState extends State<MyApp> {
               return CodeForge(
                 undoController: undoController,
                 language: langDart,
-                editorTheme: atomOneDarkReasonableTheme,
+                editorTheme: githubDarkTheme,
                 controller: codeController,
                 textStyle: GoogleFonts.jetBrainsMono(),
                 filePath: absFilePath,
