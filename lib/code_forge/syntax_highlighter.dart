@@ -78,34 +78,40 @@ class SyntaxHighlighter {
     _semanticMapping = getSemanticMapping(languageId ?? '');
   }
 
-  void updateSemanticTokens(List<LspSemanticToken> tokens, String fullText) {
+  void updateSemanticTokens(
+    List<LspSemanticToken> tokens,
+    String Function(int) getLineText,
+    int lineCount,
+  ) {
     _lineSemanticSpans.clear();
-    final lines = fullText.split('\n');
+    final lineCache = <int, String>{};
 
     for (final token in tokens) {
-      if (token.line < lines.length) {
-        final lineText = lines[token.line];
-        final start = token.start.clamp(0, lineText.length);
-        final end = (token.start + token.length).clamp(0, lineText.length);
+      if (token.line < 0 || token.line >= lineCount) continue;
+      final lineText = lineCache.putIfAbsent(
+        token.line,
+        () => getLineText(token.line),
+      );
+      final start = token.start.clamp(0, lineText.length);
+      final end = (token.start + token.length).clamp(0, lineText.length);
 
-        if (start < end) {
-          final word = lineText.substring(start, end);
-          final style = _resolveSemanticStyle(token.tokenTypeName);
+      if (start < end) {
+        final word = lineText.substring(start, end);
+        final style = _resolveSemanticStyle(token.tokenTypeName);
 
-          if (style != null && word.isNotEmpty) {
-            final lineSpans = _lineSemanticSpans.putIfAbsent(
-              token.line,
-              () => [],
-            );
-            lineSpans.add(
-              SemanticWordSpan(
-                startChar: start,
-                endChar: end,
-                word: word,
-                style: style,
-              ),
-            );
-          }
+        if (style != null && word.isNotEmpty) {
+          final lineSpans = _lineSemanticSpans.putIfAbsent(
+            token.line,
+            () => [],
+          );
+          lineSpans.add(
+            SemanticWordSpan(
+              startChar: start,
+              endChar: end,
+              word: word,
+              style: style,
+            ),
+          );
         }
       }
     }

@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -513507028;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1740630692;
 
 // Section: executor
 
@@ -224,6 +224,59 @@ fn wire__crate__api__rope__RopeBridge_cached_lines_impl(
                 let output_ok = Result::<_, ()>::Ok(crate::api::rope::RopeBridge::cached_lines(
                     &*api_that_guard,
                 ))?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__rope__RopeBridge_cached_lines_range_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "RopeBridge_cached_lines_range",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RopeBridge>,
+            >>::sse_decode(&mut deserializer);
+            let api_start_line = <usize>::sse_decode(&mut deserializer);
+            let api_end_line = <usize>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let mut api_that_guard = None;
+                let decode_indices_ =
+                    flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                            &api_that, 0, false,
+                        ),
+                    ]);
+                for i in decode_indices_ {
+                    match i {
+                        0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
+                        _ => unreachable!(),
+                    }
+                }
+                let api_that_guard = api_that_guard.unwrap();
+                let output_ok =
+                    Result::<_, ()>::Ok(crate::api::rope::RopeBridge::cached_lines_range(
+                        &*api_that_guard,
+                        api_start_line,
+                        api_end_line,
+                    ))?;
                 Ok(output_ok)
             })())
         },
@@ -1616,9 +1669,9 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        23 => wire__crate__api__editor__folds_compute_all_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__editor__init_app_impl(port, ptr, rust_vec_len, data_len),
-        27 => {
+        24 => wire__crate__api__editor__folds_compute_all_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__editor__init_app_impl(port, ptr, rust_vec_len, data_len),
+        28 => {
             wire__crate__api__editor__line_summary_default_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -1637,39 +1690,42 @@ fn pde_ffi_dispatcher_sync_impl(
         2 => wire__crate__api__editor__LayoutMap_new_impl(ptr, rust_vec_len, data_len),
         3 => wire__crate__api__editor__LayoutMap_push_line_impl(ptr, rust_vec_len, data_len),
         4 => wire__crate__api__rope__RopeBridge_cached_lines_impl(ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__rope__RopeBridge_char_at_impl(ptr, rust_vec_len, data_len),
-        6 => wire__crate__api__rope__RopeBridge_char_to_line_impl(ptr, rust_vec_len, data_len),
-        7 => wire__crate__api__rope__RopeBridge_copy_impl(ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__rope__RopeBridge_create_impl(ptr, rust_vec_len, data_len),
-        9 => wire__crate__api__rope__RopeBridge_find_line_end_impl(ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__rope__RopeBridge_find_line_start_impl(ptr, rust_vec_len, data_len),
-        11 => wire__crate__api__rope__RopeBridge_get_bidi_segments_for_line_impl(
+        5 => {
+            wire__crate__api__rope__RopeBridge_cached_lines_range_impl(ptr, rust_vec_len, data_len)
+        }
+        6 => wire__crate__api__rope__RopeBridge_char_at_impl(ptr, rust_vec_len, data_len),
+        7 => wire__crate__api__rope__RopeBridge_char_to_line_impl(ptr, rust_vec_len, data_len),
+        8 => wire__crate__api__rope__RopeBridge_copy_impl(ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__rope__RopeBridge_create_impl(ptr, rust_vec_len, data_len),
+        10 => wire__crate__api__rope__RopeBridge_find_line_end_impl(ptr, rust_vec_len, data_len),
+        11 => wire__crate__api__rope__RopeBridge_find_line_start_impl(ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__rope__RopeBridge_get_bidi_segments_for_line_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        12 => wire__crate__api__rope__RopeBridge_get_bidi_segments_in_range_impl(
+        13 => wire__crate__api__rope__RopeBridge_get_bidi_segments_in_range_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__api__rope__RopeBridge_get_text_impl(ptr, rust_vec_len, data_len),
-        14 => wire__crate__api__rope__RopeBridge_insert_impl(ptr, rust_vec_len, data_len),
-        15 => wire__crate__api__rope__RopeBridge_len_chars_impl(ptr, rust_vec_len, data_len),
-        16 => wire__crate__api__rope__RopeBridge_len_lines_impl(ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__rope__RopeBridge_line_impl(ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__rope__RopeBridge_line_to_char_impl(ptr, rust_vec_len, data_len),
-        19 => {
+        14 => wire__crate__api__rope__RopeBridge_get_text_impl(ptr, rust_vec_len, data_len),
+        15 => wire__crate__api__rope__RopeBridge_insert_impl(ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__rope__RopeBridge_len_chars_impl(ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__rope__RopeBridge_len_lines_impl(ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__rope__RopeBridge_line_impl(ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__rope__RopeBridge_line_to_char_impl(ptr, rust_vec_len, data_len),
+        20 => {
             wire__crate__api__rope__RopeBridge_primary_direction_impl(ptr, rust_vec_len, data_len)
         }
-        20 => wire__crate__api__rope__RopeBridge_remove_impl(ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__rope__RopeBridge_slice_impl(ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__rope__RopeBridge_text_direction_impl(ptr, rust_vec_len, data_len),
-        24 => {
+        21 => wire__crate__api__rope__RopeBridge_remove_impl(ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__rope__RopeBridge_slice_impl(ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__rope__RopeBridge_text_direction_impl(ptr, rust_vec_len, data_len),
+        25 => {
             wire__crate__api__editor__folds_find_matching_bracket_impl(ptr, rust_vec_len, data_len)
         }
-        25 => wire__crate__api__editor__guides_compute_viewport_impl(ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__editor__words_extract_impl(ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__editor__guides_compute_viewport_impl(ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__editor__words_extract_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

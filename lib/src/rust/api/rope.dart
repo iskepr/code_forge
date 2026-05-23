@@ -6,12 +6,17 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `is_ltr_char`, `is_rtl_char`
+// These functions are ignored because they are not marked as `pub`: `compute_bidi_segments`, `is_ltr_char`, `is_rtl_char`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<RopeBridge>>
 abstract class RopeBridge implements RustOpaqueInterface {
   List<String> cachedLines();
+
+  List<String> cachedLinesRange({
+    required BigInt startLine,
+    required BigInt endLine,
+  });
 
   String charAt({required BigInt position});
 

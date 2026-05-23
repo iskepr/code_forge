@@ -119,6 +119,25 @@ impl RopeBridge {
         }
         lines
     }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn cached_lines_range(&self, start_line: usize, end_line: usize) -> Vec<String> {
+        let rope = self.rope.read().unwrap();
+        let total = rope.len_lines();
+        let start = start_line.min(total);
+        let end = end_line.min(total).max(start);
+        let mut lines = Vec::with_capacity(end.saturating_sub(start));
+        for line_idx in start..end {
+            let mut line_str = rope.line(line_idx).to_string();
+            if line_str.ends_with("\r\n") {
+                line_str.truncate(line_str.len() - 2);
+            } else if line_str.ends_with('\n') {
+                line_str.truncate(line_str.len() - 1);
+            }
+            lines.push(line_str);
+        }
+        lines
+    }
     
     #[flutter_rust_bridge::frb(sync)]
     pub fn primary_direction(&self) -> TextDirection {
@@ -168,62 +187,17 @@ impl RopeBridge {
     #[flutter_rust_bridge::frb(sync)]
     pub fn get_bidi_segments_in_range(&self, start: usize, end: usize) -> Vec<BiDiSegment> {
         let rope = self.rope.read().unwrap();
-        let end = end.min(rope.len_chars());
-        if start >= end {
-            return vec![];
-        }
-        
-        let mut segments = Vec::new();
-        let mut current_dir = None;
-        let mut segment_start = 0;
-        
-        let slice = rope.slice(start..end);
-        
-        for (i, c) in slice.chars().enumerate() {
-            let char_dir = if is_rtl_char(c) {
-                Some(TextDirection::Rtl)
-            } else if is_ltr_char(c) {
-                Some(TextDirection::Ltr)
-            } else {
-                None
-            };
-            
-            if let Some(cd) = char_dir {
-                if current_dir.is_none() {
-                    current_dir = Some(cd);
-                    segment_start = i;
-                } else if Some(cd) != current_dir {
-                    segments.push(BiDiSegment {
-                        start: start + segment_start,
-                        end: start + i,
-                        direction: current_dir.unwrap(),
-                    });
-                    current_dir = Some(cd);
-                    segment_start = i;
-                }
-            }
-        }
-        
-        if let Some(cd) = current_dir {
-            segments.push(BiDiSegment {
-                start: start + segment_start,
-                end,
-                direction: cd,
-            });
-        }
-        
-        segments
+        compute_bidi_segments(&rope, start, end)
     }
     
     #[flutter_rust_bridge::frb(sync)]
     pub fn get_bidi_segments_for_line(&self, line_index: usize) -> Vec<BiDiSegment> {
-        let start = self.line_to_char(line_index);
         let rope = self.rope.read().unwrap();
         let valid_idx = line_index.min(rope.len_lines().saturating_sub(1));
+        let start = rope.line_to_char(valid_idx);
         let line = rope.line(valid_idx);
         let end = start + line.len_chars();
-        drop(rope);
-        self.get_bidi_segments_in_range(start, end)
+        compute_bidi_segments(&rope, start, end)
     }
 
     #[flutter_rust_bridge::frb(sync)]
@@ -242,15 +216,70 @@ impl RopeBridge {
         } else {
             rope.len_chars()
         };
-        let line_text = rope.line(line).to_string();
-        if line_text.ends_with("\r\n") {
-            next_line_start.saturating_sub(2)
-        } else if line_text.ends_with('\n') {
-            next_line_start.saturating_sub(1)
+        let line_slice = rope.line(line);
+        let line_len = line_slice.len_chars();
+        if line_len == 0 {
+            return next_line_start;
+        }
+        let last = line_slice.char(line_len - 1);
+        if last == '\n' {
+            if line_len >= 2 && line_slice.char(line_len - 2) == '\r' {
+                next_line_start.saturating_sub(2)
+            } else {
+                next_line_start.saturating_sub(1)
+            }
         } else {
             next_line_start
         }
     }
+}
+
+fn compute_bidi_segments(rope: &RustRope, start: usize, end: usize) -> Vec<BiDiSegment> {
+    let end = end.min(rope.len_chars());
+    if start >= end {
+        return vec![];
+    }
+
+    let mut segments = Vec::new();
+    let mut current_dir = None;
+    let mut segment_start = 0;
+
+    let slice = rope.slice(start..end);
+
+    for (i, c) in slice.chars().enumerate() {
+        let char_dir = if is_rtl_char(c) {
+            Some(TextDirection::Rtl)
+        } else if is_ltr_char(c) {
+            Some(TextDirection::Ltr)
+        } else {
+            None
+        };
+
+        if let Some(cd) = char_dir {
+            if current_dir.is_none() {
+                current_dir = Some(cd);
+                segment_start = i;
+            } else if Some(cd) != current_dir {
+                segments.push(BiDiSegment {
+                    start: start + segment_start,
+                    end: start + i,
+                    direction: current_dir.unwrap(),
+                });
+                current_dir = Some(cd);
+                segment_start = i;
+            }
+        }
+    }
+
+    if let Some(cd) = current_dir {
+        segments.push(BiDiSegment {
+            start: start + segment_start,
+            end,
+            direction: cd,
+        });
+    }
+
+    segments
 }
 
 fn is_rtl_char(c: char) -> bool {

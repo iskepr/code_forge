@@ -4029,7 +4029,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   void updateSemanticTokens(List<LspSemanticToken> tokens, int version) {
     if (version < _lastAppliedSemanticVersion) return;
     _lastAppliedSemanticVersion = version;
-    _syntaxHighlighter.updateSemanticTokens(tokens, controller.text);
+    _syntaxHighlighter.updateSemanticTokens(
+      tokens,
+      controller.getLineText,
+      controller.lineCount,
+    );
     _paragraphCache.clear();
     _bracketCache.clear();
     _indentGuideCache.clear();
@@ -5595,6 +5599,17 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
     }
     return null;
+  }
+
+  bool _shouldShortenGuideToPreviousLine(String lineText) {
+    final trimmed = lineText.trimRight();
+    if (trimmed.endsWith('{') ||
+        trimmed.endsWith('(') ||
+        trimmed.endsWith('[')) {
+      return true;
+    }
+
+    return _extractOpeningTagName(trimmed) != null;
   }
 
   int? _findMatchingClosingTagLine(String tagName, int startLine) {
@@ -7463,51 +7478,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     );
   }
 
-  int _findIndentBasedEndLine(
-    int startLine,
-    int leadingSpaces,
-    bool hasActiveFolds,
-  ) {
-    final key = '$startLine-$leadingSpaces-${hasActiveFolds ? 1 : 0}';
-    if (_indentEndLineCache.containsKey(key)) {
-      return _indentEndLineCache[key]!;
-    }
-
-    int endLine = startLine + 1;
-    int lastValidLine = startLine;
-
-    while (endLine < controller.lineCount) {
-      if (hasActiveFolds && _isLineFolded(endLine)) {
-        lastValidLine = endLine;
-        endLine++;
-        continue;
-      }
-
-      String nextLine;
-      if (_lineTextCache.containsKey(endLine)) {
-        nextLine = _lineTextCache[endLine]!;
-      } else {
-        nextLine = controller.getLineText(endLine);
-        _lineTextCache[endLine] = nextLine;
-      }
-
-      if (nextLine.trim().isEmpty) {
-        endLine++;
-        continue;
-      }
-
-      final nextLeading = nextLine.length - nextLine.trimLeft().length;
-      if (nextLeading <= leadingSpaces) break;
-
-      lastValidLine = endLine;
-      endLine++;
-    }
-
-    final result = lastValidLine + 1;
-    _indentEndLineCache[key] = result;
-    return result;
-  }
-
   void _drawIndentGuides(
     Canvas canvas,
     Offset offset,
@@ -7525,93 +7495,33 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     List<({int startLine, int endLine, int indentLevel, double guideX})>
     blocks = [];
 
-    void processLine(int i) {
-      if (hasActiveFolds && _isLineFolded(i)) return;
+    final scanStart = (firstVisibleLine - 500).clamp(0, firstVisibleLine);
 
-      final cachedBlocks = _indentGuideCache[i];
-      if (cachedBlocks != null) {
+    void addBlock({
+      required int startLine,
+      required int endLine,
+      required int leadingColumns,
+      required int indentLevel,
+      required String lineText,
+    }) {
+      if (endLine <= startLine + 1) return;
+
+      final cachedBlocks = _indentGuideCache[startLine];
+      if (cachedBlocks != null && cachedBlocks.isNotEmpty) {
         blocks.addAll(cachedBlocks);
         return;
       }
 
-      String lineText;
-      if (_lineTextCache.containsKey(i)) {
-        lineText = _lineTextCache[i]!;
-      } else {
-        lineText = controller.getLineText(i);
-        _lineTextCache[i] = lineText;
-      }
-
-      final trimmed = lineText.trimRight();
-      final endsWithBracket =
-          trimmed.endsWith('{') ||
-          trimmed.endsWith('(') ||
-          trimmed.endsWith('[') ||
-          trimmed.endsWith(':');
-
-      final openingTagName = _extractOpeningTagName(lineText);
-      final normalizedLangId = languageId?.toLowerCase() ?? '';
-      final isTagBasedLanguage =
-          _language.name == 'html' ||
-          _language.name == 'xml' ||
-          (_language.aliases?.contains('html') ?? false) ||
-          (_language.aliases?.contains('xml') ?? false) ||
-          (_language.aliases?.contains('tsx') ?? false) ||
-          (_language.aliases?.contains('jsx') ?? false) ||
-          (languageId?.contains('html') ?? false) ||
-          (languageId?.contains('xml') ?? false) ||
-          normalizedLangId.contains('tsx') ||
-          normalizedLangId.contains('jsx');
-
-      if (!endsWithBracket && (!isTagBasedLanguage || openingTagName == null)) {
-        _indentGuideCache[i] = const [];
-        return;
-      }
-
-      final leadingSpaces = lineText.length - lineText.trimLeft().length;
-      final indentLevel = _lineIndentCache.containsKey(i)
-          ? _lineIndentCache[i]!
-          : leadingSpaces ~/ tabSize;
-      if (!_lineIndentCache.containsKey(i)) {
-        _lineIndentCache[i] = indentLevel;
-      }
-      final lastChar = trimmed[trimmed.length - 1];
-      int endLine = i + 1;
-
-      if (lastChar == '{' || lastChar == '(' || lastChar == '[') {
-        final lineStartOffset = controller.getLineStartOffset(i);
-        final bracketPos = lineStartOffset + trimmed.length - 1;
-        final matchPos = _findMatchingBracket(bracketPos);
-
-        if (matchPos != null) {
-          endLine = controller.getLineAtOffset(matchPos);
-        } else {
-          endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
-        }
-      } else if (openingTagName != null && isTagBasedLanguage) {
-        final lspFold = controller.lspFoldRanges?[i];
-        if (lspFold != null && lspFold.endIndex > i) {
-          endLine = lspFold.endIndex + 1;
-        } else {
-          final matchLine = _findMatchingClosingTagLine(openingTagName, i);
-          if (matchLine != null) {
-            endLine = matchLine + 1;
-          } else {
-            endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
-          }
-        }
-      } else {
-        endLine = _findIndentBasedEndLine(i, leadingSpaces, hasActiveFolds);
-      }
-
-      if (endLine <= i + 1) {
-        _indentGuideCache[i] = const [];
-        return;
-      }
+      final renderEndLine = _shouldShortenGuideToPreviousLine(lineText)
+          ? (endLine - 1).clamp(startLine + 1, endLine)
+          : endLine;
 
       double guideX = 0;
-      if (leadingSpaces > 0) {
-        final indentString = lineText.substring(0, leadingSpaces);
+      if (leadingColumns > 0) {
+        final indentString = lineText.substring(
+          0,
+          leadingColumns.clamp(0, lineText.length),
+        );
         final builder = ui.ParagraphBuilder(_paragraphStyle)
           ..pushStyle(_uiTextStyle)
           ..addText(indentString);
@@ -7620,66 +7530,85 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         guideX = spacePara.maxIntrinsicWidth;
       }
 
-      bool wouldPassThroughText = false;
-      for (
-        int checkLine = i + 1;
-        checkLine < endLine - 1 && checkLine < controller.lineCount;
-        checkLine++
-      ) {
-        if (hasActiveFolds && _isLineFolded(checkLine)) continue;
-
-        String checkLineText;
-        if (_lineTextCache.containsKey(checkLine)) {
-          checkLineText = _lineTextCache[checkLine]!;
-        } else {
-          checkLineText = controller.getLineText(checkLine);
-          _lineTextCache[checkLine] = checkLineText;
-        }
-
-        if (checkLineText.trim().isEmpty) continue;
-
-        final checkLeadingSpaces =
-            checkLineText.length - checkLineText.trimLeft().length;
-
-        if (checkLeadingSpaces <= leadingSpaces) {
-          wouldPassThroughText = true;
-          break;
-        }
-      }
-
-      if (wouldPassThroughText) {
-        _indentGuideCache[i] = const [];
-        return;
-      }
-
       final block = (
-        startLine: i,
-        endLine: endLine,
+        startLine: startLine,
+        endLine: renderEndLine,
         indentLevel: indentLevel,
         guideX: guideX,
       );
 
-      _indentGuideCache[i] = [block];
-      if (endLine >= firstVisibleLine) {
+      _indentGuideCache[startLine] = [block];
+      if (renderEndLine >= firstVisibleLine) {
         blocks.add(block);
       }
     }
 
-    final scanBackLimit = 500;
-    final scanStart = (firstVisibleLine - scanBackLimit).clamp(
-      0,
-      firstVisibleLine,
-    );
-    for (int i = scanStart; i < firstVisibleLine; i++) {
-      processLine(i);
-    }
-
+    final foldedGuideCandidates = <int, FoldRange>{};
     for (
-      int i = firstVisibleLine;
+      int i = scanStart;
       i <= lastVisibleLine && i < controller.lineCount;
       i++
     ) {
-      processLine(i);
+      final fold = _foldRanges[i];
+      if (fold != null) {
+        foldedGuideCandidates[i] = fold;
+      }
+    }
+
+    if (foldedGuideCandidates.isNotEmpty) {
+      for (final entry in foldedGuideCandidates.entries) {
+        final lineIndex = entry.key;
+        final fold = entry.value;
+
+        String lineText;
+        if (_lineTextCache.containsKey(lineIndex)) {
+          lineText = _lineTextCache[lineIndex]!;
+        } else {
+          lineText = controller.getLineText(lineIndex);
+          _lineTextCache[lineIndex] = lineText;
+        }
+
+        final leadingSpaces = lineText.length - lineText.trimLeft().length;
+        final indentLevel = _lineIndentCache.containsKey(lineIndex)
+            ? _lineIndentCache[lineIndex]!
+            : leadingSpaces ~/ tabSize;
+        if (!_lineIndentCache.containsKey(lineIndex)) {
+          _lineIndentCache[lineIndex] = indentLevel;
+        }
+
+        addBlock(
+          startLine: lineIndex,
+          endLine: fold.endIndex + 1,
+          leadingColumns: leadingSpaces,
+          indentLevel: indentLevel,
+          lineText: lineText,
+        );
+      }
+    } else {
+      final rustBlocks = guidesComputeViewport(
+        rope: controller.rope.core,
+        firstVisible: BigInt.from(firstVisibleLine),
+        lastVisible: BigInt.from(lastVisibleLine),
+        tabSize: BigInt.from(tabSize),
+      );
+
+      for (final b in rustBlocks) {
+        String lineText;
+        if (_lineTextCache.containsKey(b.startLine)) {
+          lineText = _lineTextCache[b.startLine]!;
+        } else {
+          lineText = controller.getLineText(b.startLine);
+          _lineTextCache[b.startLine] = lineText;
+        }
+
+        addBlock(
+          startLine: b.startLine,
+          endLine: b.endLine,
+          leadingColumns: b.leadingSpaces,
+          indentLevel: b.indentLevel,
+          lineText: lineText,
+        );
+      }
     }
 
     int? selectedBlockIndex;

@@ -5,7 +5,7 @@ class Rope {
   RopeBridge get core => _rope;
 
   Rope([String initialText = ''])
-      : _rope = RopeBridge.create(initialText: initialText);
+    : _rope = RopeBridge.create(initialText: initialText);
 
   Rope._fromBridge(this._rope);
 
@@ -44,12 +44,15 @@ class Rope {
       return (Rope._fromBridge(_rope.copy()), Rope(''));
     }
 
-    final leftText = _rope.slice(start: BigInt.zero, end: BigInt.from(position));
-    final rightText = _rope.slice(start: BigInt.from(position), end: BigInt.from(length));
-    return (
-      Rope(leftText),
-      Rope(rightText),
+    final leftText = _rope.slice(
+      start: BigInt.zero,
+      end: BigInt.from(position),
     );
+    final rightText = _rope.slice(
+      start: BigInt.from(position),
+      end: BigInt.from(length),
+    );
+    return (Rope(leftText), Rope(rightText));
   }
 
   /// Creates a deep copy of this Rope
@@ -74,7 +77,10 @@ class Rope {
 
   /// Get BiDi segments for the entire rope
   List<BiDiSegment> get bidiSegments {
-    return _rope.getBidiSegmentsInRange(start: BigInt.zero, end: BigInt.from(length));
+    return _rope.getBidiSegmentsInRange(
+      start: BigInt.zero,
+      end: BigInt.from(length),
+    );
   }
 
   /// Get BiDi segments for a specific line
@@ -85,7 +91,9 @@ class Rope {
   /// Get BiDi segments within a character range
   List<BiDiSegment> getBiDiSegmentsInRange(int start, int end) {
     return _rope.getBidiSegmentsInRange(
-        start: BigInt.from(start), end: BigInt.from(end));
+      start: BigInt.from(start),
+      end: BigInt.from(end),
+    );
   }
 
   /// Get only RTL segments (useful for rendering)
@@ -120,7 +128,10 @@ class Rope {
   }
 
   String substring(int start, [int? end]) {
-    return _rope.slice(start: BigInt.from(start), end: BigInt.from(end ?? length));
+    return _rope.slice(
+      start: BigInt.from(start),
+      end: BigInt.from(end ?? length),
+    );
   }
 
   String charAt(int position) {
@@ -141,6 +152,13 @@ class Rope {
 
   List<String> get cachedLines {
     return _rope.cachedLines();
+  }
+
+  List<String> cachedLinesRange(int startLine, int endLine) {
+    return _rope.cachedLinesRange(
+      startLine: BigInt.from(startLine),
+      endLine: BigInt.from(endLine),
+    );
   }
 
   Iterable<String> get lines {

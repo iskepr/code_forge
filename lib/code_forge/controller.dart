@@ -56,6 +56,7 @@ class CodeForgeController implements DeltaTextInputClient {
   List<String>? _cachedBufferLines;
   int _cachedTextVersion = -1, _currentVersion = 0, _semanticTokensVersion = 0;
   int? dirtyLine, _bufferLineIndex;
+  int _completionRequestId = 0;
   bool deleteFoldRangeOnDeletingFirstLine = false;
   TextSelection? _lastSentSelection;
   String? _lastTypedCharacter;
@@ -312,13 +313,11 @@ class CodeForgeController implements DeltaTextInputClient {
           final isAlphaChar = _isAlpha(triggerChar);
 
           if ((isTriggerChar || isAlphaChar) && !_isDisposed) {
-            _suggestions = await lspConfig!.getCompletions(
-              openedFile!,
-              line,
-              character,
+            _requestCompletions(
+              prefix: prefix,
+              line: line,
+              character: character,
             );
-            _sortSuggestions(prefix);
-            if (!_isDisposed) suggestionsNotifier.value = _suggestions;
           } else {
             if (!_isDisposed) suggestionsNotifier.value = null;
           }
@@ -359,6 +358,34 @@ class CodeForgeController implements DeltaTextInputClient {
         await lspConfig!.saveDocument(openedFile!, text);
       }
     });
+  }
+
+  void _requestCompletions({
+    required String prefix,
+    required int line,
+    required int character,
+  }) {
+    final requestId = ++_completionRequestId;
+    unawaited(_fetchCompletions(requestId, prefix, line, character));
+  }
+
+  Future<void> _fetchCompletions(
+    int requestId,
+    String prefix,
+    int line,
+    int character,
+  ) async {
+    if (_isDisposed || !_lspReady || openedFile == null) return;
+    await Future<void>.delayed(Duration.zero);
+    final completions = await lspConfig!.getCompletions(
+      openedFile!,
+      line,
+      character,
+    );
+    if (_isDisposed || requestId != _completionRequestId) return;
+    _suggestions = completions;
+    _sortSuggestions(prefix);
+    if (!_isDisposed) suggestionsNotifier.value = _suggestions;
   }
 
   final ValueNotifier<(List<LspSemanticToken>?, int)> semanticTokens =
@@ -1846,6 +1873,11 @@ class CodeForgeController implements DeltaTextInputClient {
   /// List of all lines in the document.
   List<String> get lines => _rope.cachedLines;
 
+  /// Returns a window of lines without allocating the full buffer.
+  List<String> getLinesRange(int startLine, int endLine) {
+    return _rope.cachedLinesRange(startLine, endLine);
+  }
+
   /// The total number of lines in the document.
   int get lineCount {
     if (_bufferLineIndex != null && _bufferDirty) {
@@ -1861,7 +1893,7 @@ class CodeForgeController implements DeltaTextInputClient {
   /// Returns the document text with lines inside collapsed fold ranges removed.
   String get visibleText {
     if (foldings.isEmpty) return text;
-    final visLines = List<String>.from(lines);
+    final visLines = getLinesRange(0, lineCount);
     for (final fold
         in foldings.values.where((f) => f != null).toList().reversed) {
       if (!fold!.isFolded) continue;
