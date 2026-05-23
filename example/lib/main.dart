@@ -21,7 +21,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final undoController = UndoRedoController();
-  final absFilePath = p.join(Directory.current.path, "lib/big_code.dart");
+  final absFilePath = p.join(Directory.current.path, "lib/example_code.dart");
   CodeForgeController? codeController;
 
   Future<LspConfig> getLsp() async {
