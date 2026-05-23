@@ -7496,6 +7496,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     blocks = [];
 
     final scanStart = (firstVisibleLine - 500).clamp(0, firstVisibleLine);
+    final visibleLineTexts = controller.getLinesRange(
+      scanStart,
+      lastVisibleLine + 1,
+    );
+
+    String lineTextAt(int lineIndex) {
+      final visibleIndex = lineIndex - scanStart;
+      if (visibleIndex < 0 || visibleIndex >= visibleLineTexts.length) {
+        return controller.getLineText(lineIndex);
+      }
+      return visibleLineTexts[visibleIndex];
+    }
 
     void addBlock({
       required int startLine,
@@ -7560,13 +7572,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final lineIndex = entry.key;
         final fold = entry.value;
 
-        String lineText;
-        if (_lineTextCache.containsKey(lineIndex)) {
-          lineText = _lineTextCache[lineIndex]!;
-        } else {
-          lineText = controller.getLineText(lineIndex);
-          _lineTextCache[lineIndex] = lineText;
-        }
+        final lineText = _lineTextCache[lineIndex] ?? lineTextAt(lineIndex);
+        _lineTextCache[lineIndex] = lineText;
 
         final leadingSpaces = lineText.length - lineText.trimLeft().length;
         final indentLevel = _lineIndentCache.containsKey(lineIndex)
@@ -7593,13 +7600,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       );
 
       for (final b in rustBlocks) {
-        String lineText;
-        if (_lineTextCache.containsKey(b.startLine)) {
-          lineText = _lineTextCache[b.startLine]!;
-        } else {
-          lineText = controller.getLineText(b.startLine);
-          _lineTextCache[b.startLine] = lineText;
-        }
+        final lineText = _lineTextCache[b.startLine] ?? lineTextAt(b.startLine);
+        _lineTextCache[b.startLine] = lineText;
 
         addBlock(
           startLine: b.startLine,
