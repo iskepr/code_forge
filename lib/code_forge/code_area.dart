@@ -181,10 +181,10 @@ class CodeForge extends StatefulWidget {
   /// Whether to show a divider line between gutter and content.
   final bool enableGutterDivider;
 
-  /// Whether to enable autocomplete suggestions.
-  ///
-  /// Requires LSP integration for language-aware completions.
-  final bool enableSuggestions;
+  /// Whether to enable local and non LSP autocomplete suggestions.
+  /// To control LSP suggestions, use the [capabilities] field of the [LspConfig].
+  /// [false] by default because, this may cause delay or jitter in large files.
+  final bool enableLocalSuggestions;
 
   /// Whether to show auto completions in the OS virtual keyboard.
   ///
@@ -264,7 +264,7 @@ class CodeForge extends StatefulWidget {
     this.lineWrap = false,
     this.enableFolding = true,
     this.enableGuideLines = true,
-    this.enableSuggestions = true,
+    this.enableLocalSuggestions = false,
     this.enableKeyboardSuggestions = true,
     this.keyboardType = TextInputType.multiline,
     this.textDirection = TextDirection.ltr,
@@ -388,6 +388,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _deleteFoldRangeOnDeletingFirstLine =
         widget.deleteFoldRangeOnDeletingFirstLine;
     _controller.setUndoController(_undoRedoController);
+    _controller.enableLocalSuggestions = widget.enableLocalSuggestions;
     _controller.deleteFoldRangeOnDeletingFirstLine =
         _deleteFoldRangeOnDeletingFirstLine;
 
@@ -666,7 +667,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       final snippets = widget.customCodeSnippets;
       if (snippets == null || snippets.isEmpty) return;
 
-      final currentLength = _controller.text.length;
+      final currentLength = _controller.length;
       final grew = currentLength == _prevSnippetTextLength + 1;
       _prevSnippetTextLength = currentLength;
 
@@ -690,7 +691,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       if (current.any((e) => e is _SnippetSuggestion)) return;
 
       final cursor = _controller.selection.extentOffset;
-      final prefix = _controller.getCurrentWordPrefix(_controller.text, cursor);
+      final prefix = _controller.getCurrentWordPrefixAt(cursor);
       final matching = snippets
           .where(
             (e) =>
@@ -2643,9 +2644,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                   ValueListenableBuilder(
                     valueListenable: _offsetNotifier,
                     builder: (context, offset, child) {
-                      if (offset.dy < 0 ||
-                          offset.dx < 0 ||
-                          !widget.enableSuggestions) {
+                      if (offset.dy < 0 || offset.dx < 0) {
                         return SizedBox.shrink();
                       }
                       return ValueListenableBuilder(
@@ -2824,7 +2823,9 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   }
                                                 }
                                               } else if ((item
-                                                      is! LspCompletion) &&
+                                                          is! LspCompletion &&
+                                                      widget
+                                                          .enableLocalSuggestions) &&
                                                   (indx == _sugSelIndex ||
                                                       (_isMobile &&
                                                           _isMobileSuggActive))) {
@@ -3197,9 +3198,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                   ValueListenableBuilder(
                     valueListenable: _hoverNotifier,
                     builder: (_, hov, c) {
-                      if (hov == null ||
-                          _controller.lspConfig == null ||
-                          !widget.enableSuggestions) {
+                      if (hov == null || _controller.lspConfig == null) {
                         return SizedBox.shrink();
                       }
                       final Offset position = hov.$1;
@@ -3516,8 +3515,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                     builder: (_, offset, child) {
                       if (offset == null ||
                           _lspActionNotifier.value == null ||
-                          _controller.lspConfig == null ||
-                          !widget.enableSuggestions) {
+                          _controller.lspConfig == null) {
                         return SizedBox.shrink();
                       }
 
@@ -3681,7 +3679,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   void _insertSnippetWithCursors(_SnippetSuggestion snippet) {
     final cursorBefore = _controller.selection.extentOffset;
     final safePos = cursorBefore.clamp(0, _controller.length);
-    final prefix = _controller.getCurrentWordPrefix(_controller.text, safePos);
+    final prefix = _controller.getCurrentWordPrefixAt(safePos);
     final insertStart = (cursorBefore - prefix.length).clamp(
       0,
       _controller.length,
@@ -3974,6 +3972,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   late final Paint _bracketHighlightPainter;
   late ui.ParagraphStyle _paragraphStyle;
   late ui.TextStyle _uiTextStyle;
+  late final LayoutMap _layoutMap;
   late SyntaxHighlighter _syntaxHighlighter;
   late double _gutterWidth;
   TextStyle? _ghostTextStyle;
@@ -4014,6 +4013,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   Timer? _resizeTimer, _layoutDebounceTimer;
   double _cachedTotalHeight = 0.0;
   String? _aiResponse, _lastProcessedText;
+  int _lastProcessedContentVersion = -1;
   TextSelection? _lastSelectionForAi;
   ui.Paragraph? _cachedMagnifiedParagraph;
   int? _cachedMagnifiedLine, _cachedMagnifiedOffset;
@@ -4275,6 +4275,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       baseTextStyle: _textStyle,
       languageId: languageId,
     );
+    _layoutMap = LayoutMap();
+    _rebuildLayoutMap();
 
     _gutterPadding = fontSize;
     if (_enableGutter) {
@@ -4603,6 +4605,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _cachedRtlContentWidth = 0.0;
     _hasCachedHeight = false;
     _isCachedHeightExact = false;
+    _rebuildLayoutMap();
 
     markNeedsLayout();
     markNeedsPaint();
@@ -4655,6 +4658,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _lineOffsetCache.clear();
     _caretInfoCache.clear();
     _lineIndentCache.clear();
+    if (!_lineWrap) {
+      _rebuildLayoutMap();
+    }
     markNeedsLayout();
     markNeedsPaint();
   }
@@ -4973,6 +4979,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
 
+    final currentContentVersion = controller.contentVersion;
+    if (currentContentVersion == _lastProcessedContentVersion) {
+      return;
+    }
+
     if (_showBubble && isMobile) {
       _showBubble = false;
     }
@@ -5043,13 +5054,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _cachedCaretOffset = -1;
 
       final startInvalidation = insertionLine > 0 ? insertionLine - 1 : 0;
-      for (int i = startInvalidation; i <= newLineCount; i++) {
-        _lineTextCache.remove(i);
-        _lineWidthCache.remove(i);
-        _paragraphCache.remove(i);
-        _lineHeightCache.remove(i);
-      }
-      _syntaxHighlighter.invalidateRange(startInvalidation, newLineCount);
+
+      _lineTextCache.clear();
+      _lineWidthCache.clear();
+      _paragraphCache.clear();
+      _lineHeightCache.clear();
+      _indentGuideCache.clear();
+      _indentEndLineCache.clear();
+      _diagnosticPathCache.clear();
+      _searchHighlightCache.clear();
+      _lineIndentCache.clear();
+      _bracketCache.clear();
+      _syntaxHighlighter.invalidateAll();
 
       if (enableGutter && gutterStyle.gutterWidth == null) {
         final fontSize = textStyle?.fontSize ?? 14.0;
@@ -5113,6 +5129,35 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
 
       _deferLayout(lineDelta: lineDelta);
+
+      if (lineDelta.abs() > 500) {
+        _rebuildLayoutMap();
+      } else {
+        if (lineDelta > 0) {
+          _updateLayoutMapLine(insertionLine);
+          for (int i = 1; i <= lineDelta; i++) {
+            final lineIdx = insertionLine + i;
+            final isFolded = controller.foldings.values.any(
+              (f) =>
+                  f != null &&
+                  f.isFolded &&
+                  lineIdx > f.startIndex &&
+                  lineIdx <= f.endIndex,
+            );
+            _layoutMap.insertLine(
+              lineIdx: BigInt.from(lineIdx),
+              lenChars: BigInt.from(controller.getLineText(lineIdx).length),
+              height: _lineHeight,
+              isFolded: isFolded,
+            );
+          }
+        } else if (lineDelta < 0) {
+          for (int i = 0; i < -lineDelta; i++) {
+            _layoutMap.removeLine(lineIdx: BigInt.from(insertionLine + 1));
+          }
+          _updateLayoutMapLine(insertionLine);
+        }
+      }
     } else if (affectedLine != null) {
       _foldRanges.remove(affectedLine);
       if (affectedLine > 0) {
@@ -5129,6 +5174,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       } else {
         markNeedsPaint();
       }
+      _updateLayoutMapLine(affectedLine);
     } else {
       markNeedsPaint();
     }
@@ -5239,6 +5285,48 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     if (_lastProcessedText == newText) return;
     _lastProcessedText = newText;
+    _lastProcessedContentVersion = currentContentVersion;
+  }
+
+  void _rebuildLayoutMap() {
+    _layoutMap.clear();
+    final lineCount = controller.lineCount;
+    // Precompute folded line set from controller.foldings so initial map
+    // reflects current fold state and uses zero height for folded children.
+    final Set<int> foldedLines = {};
+    for (final f in controller.foldings.values) {
+      if (f != null && f.isFolded) {
+        final end = f.endIndex < lineCount ? f.endIndex : lineCount - 1;
+        for (int j = f.startIndex + 1; j <= end; j++) {
+          foldedLines.add(j);
+        }
+      }
+    }
+
+    for (int i = 0; i < lineCount; i++) {
+      final isFolded = foldedLines.contains(i);
+      _layoutMap.pushLine(
+        lenChars: BigInt.from(controller.getLineText(i).length),
+        height: _lineHeight,
+        isFolded: isFolded,
+      );
+    }
+  }
+
+  void _updateLayoutMapLine(int line) {
+    if (line < 0) return;
+    final lineCount = controller.lineCount;
+    if (line >= lineCount) return;
+    final isFolded = controller.foldings.values.any(
+      (f) =>
+          f != null && f.isFolded && line > f.startIndex && line <= f.endIndex,
+    );
+    _layoutMap.updateLine(
+      lineIdx: BigInt.from(line),
+      lenChars: BigInt.from(controller.getLineText(line).length),
+      height: _lineHeight,
+      isFolded: isFolded,
+    );
   }
 
   FoldRange? _computeFoldRangeForLine(int lineIndex) {
@@ -5365,6 +5453,26 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         for (var f in _foldRanges.values.where((f) => f != null))
           f!.startIndex: f,
       };
+      // Update LayoutMap for the affected lines so the SumTree reflects
+      // folded children (zero height) immediately. Keep the first line
+      // of the fold visible and mark inner lines as folded.
+      try {
+        final lineCount = controller.lineCount;
+        final start = fold.startIndex + 1;
+        final end = fold.endIndex < lineCount ? fold.endIndex : lineCount - 1;
+        for (int i = start; i <= end; i++) {
+          if (i < 0 || i >= lineCount) continue;
+          _layoutMap.updateLine(
+            lineIdx: BigInt.from(i),
+            lenChars: BigInt.from(controller.getLineText(i).length),
+            height: _lineHeight,
+            isFolded: fold.isFolded,
+          );
+        }
+      } catch (e) {
+        // Non-fatal: ensure fold toggle proceeds even if LayoutMap update fails.
+        debugPrint('LayoutMap update on fold toggle failed: $e');
+      }
       _foldedLineCacheDirty = true;
       _lineOffsetCache.clear();
       _caretInfoCache.clear();
@@ -5652,13 +5760,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   (int?, int?) _getBracketPairAtCursor() {
     final cursorOffset = controller.selection.extentOffset;
-    final text = controller.text;
-    final textLength = text.length;
+    final textLength = controller.length;
 
-    if (cursorOffset < 0 || text.isEmpty) return (null, null);
+    if (cursorOffset < 0 || textLength == 0) return (null, null);
 
     if (cursorOffset > 0 && cursorOffset <= textLength) {
-      final before = text[cursorOffset - 1];
+      final before = controller.rope.substring(cursorOffset - 1, cursorOffset);
       if ('{}[]()'.contains(before)) {
         final match = _findMatchingBracket(cursorOffset - 1);
         if (match != null) {
@@ -5668,7 +5775,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     if (cursorOffset >= 0 && cursorOffset < textLength) {
-      final after = text[cursorOffset];
+      final after = controller.rope.substring(cursorOffset, cursorOffset + 1);
       if ('{}[]()'.contains(after)) {
         final match = _findMatchingBracket(cursorOffset);
         if (match != null) {
@@ -6424,11 +6531,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         ).clamp(0, lineCount - 1);
         firstVisibleLineY = firstVisibleLine * _lineHeight;
       } else {
-        final frame = buildViewportFrame(
-          rope: controller.rope.core,
+        final frame = _layoutMap.buildViewportFrame(
           viewTop: viewTop,
           viewBottom: viewBottom,
-          lineHeight: _lineHeight,
+          fallbackLineHeight: _lineHeight,
         );
         firstVisibleLine = frame.firstLine;
         lastVisibleLine = frame.lastLine;

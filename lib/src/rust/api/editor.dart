@@ -9,7 +9,7 @@ import 'rope.dart';
 
 // These functions are ignored because they are not marked as `pub`: `contains_same_tag_closing`, `contains_same_tag_opening`, `extract_opening_tag_name`, `find_matching_bracket_in_rope`, `find_matching_closing_tag_line`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `LineBlock`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add_summary`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `summary`, `zero`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `add_summary`, `add_summary`, `add_summary`, `add_summary`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `cmp`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `partial_cmp`, `partial_cmp`, `partial_cmp`, `summary`, `zero`, `zero`, `zero`, `zero`
 
 Future<List<RustFoldRange>> foldsComputeAll({required RopeBridge rope}) =>
     RustLib.instance.api.crateApiEditorFoldsComputeAll(rope: rope);
@@ -58,12 +58,27 @@ List<GuideBlock> guidesComputeViewport({
   tabSize: tabSize,
 );
 
-List<String> wordsExtract({required RopeBridge rope}) =>
+Future<List<String>> wordsExtract({required RopeBridge rope}) =>
     RustLib.instance.api.crateApiEditorWordsExtract(rope: rope);
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<LayoutMap>>
 abstract class LayoutMap implements RustOpaqueInterface {
+  ViewportFrame buildViewportFrame({
+    required double viewTop,
+    required double viewBottom,
+    required double fallbackLineHeight,
+  });
+
   void clear();
+
+  void insertLine({
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  });
+
+  BigInt lenLines();
 
   factory LayoutMap() => RustLib.instance.api.crateApiEditorLayoutMapNew();
 
@@ -72,6 +87,43 @@ abstract class LayoutMap implements RustOpaqueInterface {
     required double height,
     required bool isFolded,
   });
+
+  void removeLine({required BigInt lineIdx});
+
+  double totalHeight();
+
+  void updateLine({
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  });
+
+  VisibleLineRange visibleRangeByHeight({
+    required double viewTop,
+    required double viewBottom,
+  });
+
+  int visualLineFromCharOffset({required BigInt charOffset});
+}
+
+class CharOffset {
+  final BigInt field0;
+
+  const CharOffset({required this.field0});
+
+  static Future<CharOffset> default_() =>
+      RustLib.instance.api.crateApiEditorCharOffsetDefault();
+
+  @override
+  int get hashCode => field0.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CharOffset &&
+          runtimeType == other.runtimeType &&
+          field0 == other.field0;
 }
 
 class GuideBlock {
@@ -105,6 +157,25 @@ class GuideBlock {
           leadingSpaces == other.leadingSpaces;
 }
 
+class LineCount {
+  final BigInt field0;
+
+  const LineCount({required this.field0});
+
+  static Future<LineCount> default_() =>
+      RustLib.instance.api.crateApiEditorLineCountDefault();
+
+  @override
+  int get hashCode => field0.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LineCount &&
+          runtimeType == other.runtimeType &&
+          field0 == other.field0;
+}
+
 class LineSummary {
   final BigInt lenChars;
   final double height;
@@ -130,6 +201,25 @@ class LineSummary {
           lenChars == other.lenChars &&
           height == other.height &&
           lines == other.lines;
+}
+
+class PixelHeight {
+  final double field0;
+
+  const PixelHeight({required this.field0});
+
+  static Future<PixelHeight> default_() =>
+      RustLib.instance.api.crateApiEditorPixelHeightDefault();
+
+  @override
+  int get hashCode => field0.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PixelHeight &&
+          runtimeType == other.runtimeType &&
+          field0 == other.field0;
 }
 
 class RustFoldRange {

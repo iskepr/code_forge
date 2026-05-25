@@ -216,8 +216,9 @@ sealed class LspConfig {
 
     textDocumentCapabilities['synchronization'] = {
       'didSave': true,
-      'change': 1,
+      'change': 2,
     };
+    
     textDocumentCapabilities['publishDiagnostics'] = {
       'relatedInformation': true,
     };
@@ -260,15 +261,27 @@ sealed class LspConfig {
 
   /// Updates the document content in the LSP server.
   ///
-  /// Sends a 'didChange' notification to the LSP server with the new [content].
+  /// Sends a 'didChange' notification to the LSP server.
+  /// If [contentChanges] is provided, the update is sent incrementally.
   /// If the document is not open, this method does nothing.
-  Future<void> updateDocument(String filePath, String content) async {
+  Future<void> updateDocument(
+    String filePath,
+    String content, {
+    List<Map<String, dynamic>>? contentChanges,
+  }) async {
     if (!_openDocuments.containsKey(filePath)) {
-      return; // Apply language-specific overrides
+      return;
     }
 
     final version = _openDocuments[filePath]! + 1;
     _openDocuments[filePath] = version;
+
+    final changes =
+        contentChanges != null && contentChanges.isNotEmpty
+            ? contentChanges
+            : [
+              {'text': content},
+            ];
 
     await sendNotification(
       method: 'textDocument/didChange',
@@ -277,9 +290,7 @@ sealed class LspConfig {
           'uri': Uri.file(filePath).toString(),
           'version': version,
         },
-        'contentChanges': [
-          {'text': content},
-        ],
+        'contentChanges': changes,
       },
     );
   }

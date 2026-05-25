@@ -1,5 +1,6 @@
 use ropey::Rope as RustRope;
 use std::sync::RwLock;
+use unicode_bidi::{bidi_class, BidiClass};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextDirection {
@@ -106,13 +107,13 @@ impl RopeBridge {
             }
         };
 
-        // update stored selection
+        // update stored selection and return the new selection
         *self.selection.write().unwrap() = SelectionState {
             base_offset: new_selection.base_offset.min(rope_write.len_chars()),
             extent_offset: new_selection.extent_offset.min(rope_write.len_chars()),
         };
 
-        *self.selection.read().unwrap()
+        new_selection
     }
 
     #[flutter_rust_bridge::frb(sync)]
@@ -186,6 +187,13 @@ impl RopeBridge {
     
     #[flutter_rust_bridge::frb(sync)]
     pub fn copy(&self) -> Self {
+        // Keep `copy` for compatibility but forward to `deep_clone` which
+        // makes the cloning intent explicit.
+        self.deep_clone()
+    }
+
+    #[flutter_rust_bridge::frb(sync)]
+    pub fn deep_clone(&self) -> Self {
         Self {
             rope: RwLock::new(self.rope.read().unwrap().clone()),
             selection: RwLock::new(*self.selection.read().unwrap()),
@@ -194,18 +202,12 @@ impl RopeBridge {
 
     #[flutter_rust_bridge::frb(sync)]
     pub fn cached_lines(&self) -> Vec<String> {
+        // Delegate to the range variant to avoid duplicating logic that
+        // allocates per-line strings.
         let rope = self.rope.read().unwrap();
-        let mut lines = Vec::with_capacity(rope.len_lines());
-        for line in rope.lines() {
-            let mut line_str = line.to_string();
-            if line_str.ends_with("\r\n") {
-                line_str.truncate(line_str.len() - 2);
-            } else if line_str.ends_with('\n') {
-                line_str.truncate(line_str.len() - 1);
-            }
-            lines.push(line_str);
-        }
-        lines
+        let total = rope.len_lines();
+        drop(rope);
+        self.cached_lines_range(0, total)
     }
 
     #[flutter_rust_bridge::frb(sync)]
@@ -234,10 +236,10 @@ impl RopeBridge {
         let mut ltr_count = 0;
         
         for c in rope.chars() {
-            if is_rtl_char(c) {
-                rtl_count += 1;
-            } else if is_ltr_char(c) {
-                ltr_count += 1;
+            match direction_for_char(c) {
+                Some(TextDirection::Rtl) => rtl_count += 1,
+                Some(TextDirection::Ltr) => ltr_count += 1,
+                _ => {}
             }
         }
         
@@ -257,10 +259,10 @@ impl RopeBridge {
         let mut has_ltr = false;
         
         for c in rope.chars() {
-            if is_rtl_char(c) {
-                has_rtl = true;
-            } else if is_ltr_char(c) {
-                has_ltr = true;
+            match direction_for_char(c) {
+                Some(TextDirection::Rtl) => has_rtl = true,
+                Some(TextDirection::Ltr) => has_ltr = true,
+                _ => {}
             }
             if has_rtl && has_ltr {
                 return TextDirection::Mixed;
@@ -334,14 +336,14 @@ fn compute_bidi_segments(rope: &RustRope, start: usize, end: usize) -> Vec<BiDiS
 
     let slice = rope.slice(start..end);
 
+    // Fast-path: if the start of the line is ASCII-only it's very likely
+    // the whole line is LTR — avoid scanning every char for the common case.
+    if slice.len_chars() <= 32 || slice.chars().take(32).all(|c| c.is_ascii()) {
+        return vec![BiDiSegment { start, end, direction: TextDirection::Ltr }];
+    }
+
     for (i, c) in slice.chars().enumerate() {
-        let char_dir = if is_rtl_char(c) {
-            Some(TextDirection::Rtl)
-        } else if is_ltr_char(c) {
-            Some(TextDirection::Ltr)
-        } else {
-            None
-        };
+        let char_dir = direction_for_char(c);
 
         if let Some(cd) = char_dir {
             if current_dir.is_none() {
@@ -370,26 +372,10 @@ fn compute_bidi_segments(rope: &RustRope, start: usize, end: usize) -> Vec<BiDiS
     segments
 }
 
-fn is_rtl_char(c: char) -> bool {
-    let code = c as u32;
-    (code >= 0x0600 && code <= 0x06FF) ||
-    (code >= 0x0750 && code <= 0x077F) ||
-    (code >= 0x08A0 && code <= 0x08FF) ||
-    (code >= 0x0590 && code <= 0x05FF) ||
-    (code >= 0x0700 && code <= 0x074F) ||
-    (code >= 0x0780 && code <= 0x07BF) ||
-    (code >= 0x07C0 && code <= 0x07FF) ||
-    matches!(code, 0x200F | 0x202B | 0x202E | 0x2067)
-}
-
-fn is_ltr_char(c: char) -> bool {
-    let code = c as u32;
-    (code >= 0x0041 && code <= 0x005A) ||
-    (code >= 0x0061 && code <= 0x007A) ||
-    (code >= 0x00C0 && code <= 0x00FF) ||
-    (code >= 0x0100 && code <= 0x017F) ||
-    (code >= 0x0180 && code <= 0x024F) ||
-    (code >= 0x0370 && code <= 0x03FF) ||
-    (code >= 0x0400 && code <= 0x04FF) ||
-    matches!(code, 0x200E | 0x202A | 0x202D | 0x2066)
+fn direction_for_char(c: char) -> Option<TextDirection> {
+    match bidi_class(c) {
+        BidiClass::L => Some(TextDirection::Ltr),
+        BidiClass::R | BidiClass::AL | BidiClass::AN => Some(TextDirection::Rtl),
+        _ => None,
+    }
 }

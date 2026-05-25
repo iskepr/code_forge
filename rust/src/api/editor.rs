@@ -1,6 +1,6 @@
 use flutter_rust_bridge::frb;
 use ropey::Rope as RustRope;
-use zed_sum_tree::{Item, SumTree, Summary};
+use zed_sum_tree::{Bias, Dimension, Dimensions, Item, SumTree, Summary};
 use crate::api::rope::RopeBridge;
 use std::collections::HashSet;
 use std::mem;
@@ -49,6 +49,59 @@ impl Item for LineBlock {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LineCount(pub usize);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CharOffset(pub usize);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PixelHeight(pub f32);
+
+impl Eq for PixelHeight {}
+
+impl PartialOrd for PixelHeight {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PixelHeight {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+impl<'a> Dimension<'a, LineSummary> for LineCount {
+    fn zero(_: ()) -> Self {
+        Self(0)
+    }
+
+    fn add_summary(&mut self, summary: &'a LineSummary, _: ()) {
+        self.0 += summary.lines;
+    }
+}
+
+impl<'a> Dimension<'a, LineSummary> for CharOffset {
+    fn zero(_: ()) -> Self {
+        Self(0)
+    }
+
+    fn add_summary(&mut self, summary: &'a LineSummary, _: ()) {
+        self.0 += summary.len_chars;
+    }
+}
+
+impl<'a> Dimension<'a, LineSummary> for PixelHeight {
+    fn zero(_: ()) -> Self {
+        Self(0.0)
+    }
+
+    fn add_summary(&mut self, summary: &'a LineSummary, _: ()) {
+        self.0 += summary.height;
+    }
+}
+
 #[frb(opaque)]
 pub struct LayoutMap {
     tree: SumTree<LineBlock>,
@@ -64,12 +117,194 @@ impl LayoutMap {
 
     #[frb(sync)]
     pub fn push_line(&mut self, len_chars: usize, height: f32, is_folded: bool) {
-        self.tree.push(LineBlock { len_chars, height, is_folded }, ());
+        self.tree.push(
+            LineBlock {
+                len_chars,
+                height,
+                is_folded,
+            },
+            (),
+        );
+    }
+
+    #[frb(sync)]
+    pub fn insert_line(&mut self, line_idx: usize, len_chars: usize, height: f32, is_folded: bool) {
+        if line_idx >= self.len_lines() {
+            self.push_line(len_chars, height, is_folded);
+            return;
+        }
+        let new_tree = {
+            let mut cursor = self.tree.cursor::<LineCount>(());
+            let mut new_tree = cursor.slice(&LineCount(line_idx), Bias::Left);
+            new_tree.push(
+                LineBlock {
+                    len_chars,
+                    height,
+                    is_folded,
+                },
+                (),
+            );
+            new_tree.append(cursor.suffix(), ());
+            new_tree
+        };
+        self.tree = new_tree;
+    }
+
+    #[frb(sync)]
+    pub fn remove_line(&mut self, line_idx: usize) {
+        if line_idx >= self.len_lines() {
+            return;
+        }
+        let new_tree: SumTree<LineBlock> = {
+            let mut cursor: zed_sum_tree::Cursor<'_, '_, LineBlock, LineCount> = self.tree.cursor::<LineCount>(());
+            let mut new_tree: SumTree<LineBlock> = cursor.slice(&LineCount(line_idx), Bias::Left);
+            cursor.next();
+            new_tree.append(cursor.suffix(), ());
+            new_tree
+        };
+        self.tree = new_tree;
     }
 
     #[frb(sync)]
     pub fn clear(&mut self) {
         self.tree = SumTree::new(());
+    }
+
+    #[frb(sync)]
+    pub fn total_height(&self) -> f64 {
+        self.tree.summary().height as f64
+    }
+
+    #[frb(sync)]
+    pub fn len_lines(&self) -> usize {
+        self.tree.summary().lines
+    }
+
+    #[frb(sync)]
+    pub fn update_line(&mut self, line_idx: usize, len_chars: usize, height: f32, is_folded: bool) {
+        if line_idx >= self.len_lines() {
+            return;
+        }
+        let new_tree: SumTree<LineBlock> = {
+            let mut cursor: zed_sum_tree::Cursor<'_, '_, LineBlock, LineCount> = self.tree.cursor::<LineCount>(());
+            let mut new_tree: SumTree<LineBlock> = cursor.slice(&LineCount(line_idx), Bias::Left);
+            cursor.next();
+            new_tree.push(
+                LineBlock {
+                    len_chars,
+                    height,
+                    is_folded,
+                },
+                (),
+            );
+            new_tree.append(cursor.suffix(), ());
+            new_tree
+        };
+        self.tree = new_tree;
+    }
+
+    #[frb(sync)]
+    pub fn visual_line_from_char_offset(&self, char_offset: usize) -> i32 {
+        if self.tree.summary().lines == 0 {
+            return 0;
+        }
+
+        let mut cursor = self.tree.cursor::<Dimensions<CharOffset, LineCount>>(());
+        cursor.seek(&CharOffset(char_offset), Bias::Left);
+        cursor.start().1.0 as i32
+    }
+
+    #[frb(sync)]
+    pub fn visible_range_by_height(&self, view_top: f64, view_bottom: f64) -> VisibleLineRange {
+        if self.tree.summary().lines == 0 {
+            return VisibleLineRange {
+                first_line: 0,
+                last_line: 0,
+                first_line_y: 0.0,
+            };
+        }
+
+        let mut start_cursor = self.tree.cursor::<Dimensions<PixelHeight, LineCount>>(());
+        start_cursor.seek(&PixelHeight(view_top.max(0.0) as f32), Bias::Left);
+        let first_line = start_cursor.start().1.0 as i32;
+        let first_line_y = start_cursor.start().0.0 as f64;
+
+        let mut end_cursor = self.tree.cursor::<Dimensions<PixelHeight, LineCount>>(());
+        end_cursor.seek(&PixelHeight(view_bottom.max(view_top) as f32), Bias::Right);
+        let mut last_line = end_cursor.start().1.0 as i32;
+        let max_line = self.tree.summary().lines.saturating_sub(1) as i32;
+        if last_line > max_line {
+            last_line = max_line;
+        }
+        if last_line < first_line {
+            last_line = first_line;
+        }
+
+        VisibleLineRange {
+            first_line,
+            last_line,
+            first_line_y,
+        }
+    }
+
+    #[frb(sync)]
+    pub fn build_viewport_frame(
+        &self,
+        view_top: f64,
+        view_bottom: f64,
+        fallback_line_height: f64,
+    ) -> ViewportFrame {
+        if self.tree.summary().lines == 0 {
+            return ViewportFrame {
+                first_line: 0,
+                last_line: 0,
+                first_line_y: 0.0,
+                lines: Vec::new(),
+            };
+        }
+
+        let visible = self.visible_range_by_height(view_top, view_bottom);
+        let mut cursor = self.tree.cursor::<Dimensions<PixelHeight, LineCount>>(());
+        cursor.seek(&PixelHeight(view_top.max(0.0) as f32), Bias::Left);
+
+        let mut lines = Vec::new();
+        let bottom = view_bottom.max(view_top) as f32;
+
+        while let Some(item) = cursor.item() {
+            let line_top = cursor.start().0.0;
+            if line_top > bottom {
+                break;
+            }
+
+            let line_height = if item.is_folded {
+                0.0
+            } else if item.height > 0.0 {
+                item.height
+            } else {
+                fallback_line_height.max(1.0) as f32
+            };
+
+            lines.push(LineSummary {
+                len_chars: item.len_chars,
+                height: line_height,
+                lines: 1,
+            });
+
+            cursor.next();
+        }
+
+        let computed_last = if lines.is_empty() {
+            visible.first_line
+        } else {
+            visible.first_line + lines.len() as i32 - 1
+        };
+
+        ViewportFrame {
+            first_line: visible.first_line,
+            last_line: computed_last.max(visible.first_line),
+            first_line_y: visible.first_line_y,
+            lines,
+        }
     }
 }
 
@@ -254,27 +489,37 @@ pub fn guides_compute_viewport(
 
     for line_idx in scan_start..=last {
         let line_slice = rope_lock.line(line_idx);
-        let mut line_str = line_slice.to_string();
-        if line_str.ends_with("\r\n") {
-            line_str.truncate(line_str.len() - 2);
-        } else if line_str.ends_with('\n') {
-            line_str.truncate(line_str.len() - 1);
+        let mut line_len = line_slice.len_chars();
+
+        if line_len >= 2 {
+            if line_slice.char(line_len - 1) == '\n' && line_slice.char(line_len - 2) == '\r' {
+                line_len = line_len.saturating_sub(2);
+            }
+        }
+        if line_len >= 1 {
+            if line_slice.char(line_len - 1) == '\n' {
+                line_len = line_len.saturating_sub(1);
+            }
         }
 
-        let trimmed_right = line_str.trim_end();
-        if trimmed_right.is_empty() {
+        while line_len > 0 && line_slice.char(line_len - 1).is_whitespace() {
+            line_len -= 1;
+        }
+
+        if line_len == 0 {
             continue;
         }
 
-        let last_char = trimmed_right.chars().last().unwrap();
-        let opening_tag_name = extract_opening_tag_name(trimmed_right);
+        let last_char = line_slice.char(line_len - 1);
+        let opening_tag_name = extract_opening_tag_name(&line_slice.slice(..line_len).to_string());
         let ends_with_bracket = matches!(last_char, '{' | '(' | '[' | ':');
         if !ends_with_bracket && opening_tag_name.is_none() {
             continue;
         }
 
         let mut leading_cols: usize = 0;
-        for c in trimmed_right.chars() {
+        for i in 0..line_len {
+            let c = line_slice.char(i);
             if c == ' ' {
                 leading_cols += 1;
             } else if c == '\t' {
@@ -290,7 +535,7 @@ pub fn guides_compute_viewport(
 
         if matches!(last_char, '{' | '(' | '[') {
             let line_start_char = rope_lock.line_to_char(line_idx);
-            let trimmed_len = trimmed_right.chars().count();
+            let trimmed_len = line_len;
             if trimmed_len > 0 {
                 let bracket_pos = line_start_char + trimmed_len - 1;
                 if let Some(match_pos) = find_matching_bracket_in_rope(&rope_lock, bracket_pos)
@@ -309,18 +554,32 @@ pub fn guides_compute_viewport(
             let mut scan = line_idx + 1;
             let mut last_valid = line_idx;
             while scan < total_lines {
-                let mut nl = rope_lock.line(scan).to_string();
-                if nl.ends_with("\r\n") {
-                    nl.truncate(nl.len() - 2);
-                } else if nl.ends_with('\n') {
-                    nl.truncate(nl.len() - 1);
+                let line_slice = rope_lock.line(scan);
+                let mut nl_len = line_slice.len_chars();
+                if nl_len >= 2 {
+                    if line_slice.char(nl_len - 1) == '\n' && line_slice.char(nl_len - 2) == '\r' {
+                        nl_len = nl_len.saturating_sub(2);
+                    }
                 }
-                if nl.trim().is_empty() {
+                if nl_len >= 1 {
+                    if line_slice.char(nl_len - 1) == '\n' {
+                        nl_len = nl_len.saturating_sub(1);
+                    }
+                }
+                let mut is_empty = true;
+                for i in 0..nl_len {
+                    if !line_slice.char(i).is_whitespace() {
+                        is_empty = false;
+                        break;
+                    }
+                }
+                if is_empty {
                     scan += 1;
                     continue;
                 }
                 let mut next_leading: usize = 0;
-                for c in nl.chars() {
+                for i in 0..nl_len {
+                    let c = line_slice.char(i);
                     if c == ' ' {
                         next_leading += 1;
                     } else if c == '\t' {
@@ -345,17 +604,31 @@ pub fn guides_compute_viewport(
         let mut would_pass = false;
         if end_line > line_idx + 1 {
             for check in (line_idx + 1)..(end_line.saturating_sub(1)) {
-                let mut cl = rope_lock.line(check).to_string();
-                if cl.ends_with("\r\n") {
-                    cl.truncate(cl.len() - 2);
-                } else if cl.ends_with('\n') {
-                    cl.truncate(cl.len() - 1);
+                let cl_slice = rope_lock.line(check);
+                let mut cl_len = cl_slice.len_chars();
+                if cl_len >= 2 {
+                    if cl_slice.char(cl_len - 1) == '\n' && cl_slice.char(cl_len - 2) == '\r' {
+                        cl_len = cl_len.saturating_sub(2);
+                    }
                 }
-                if cl.trim().is_empty() {
+                if cl_len >= 1 {
+                    if cl_slice.char(cl_len - 1) == '\n' {
+                        cl_len = cl_len.saturating_sub(1);
+                    }
+                }
+                let mut is_empty = true;
+                for i in 0..cl_len {
+                    if !cl_slice.char(i).is_whitespace() {
+                        is_empty = false;
+                        break;
+                    }
+                }
+                if is_empty {
                     continue;
                 }
                 let mut check_leading: usize = 0;
-                for c in cl.chars() {
+                for i in 0..cl_len {
+                    let c = cl_slice.char(i);
                     if c == ' ' {
                         check_leading += 1;
                     } else if c == '\t' {
@@ -427,26 +700,14 @@ fn find_matching_bracket_in_rope(rope: &RustRope, target_offset: usize) -> Optio
         }
         let mut idx = target_offset;
         while idx > 0 {
-            let (chunk, chunk_byte_idx, chunk_char_idx, _) = rope.chunk_at_char(idx - 1);
-            let chunk_start_char = chunk_char_idx;
-            let chunk_start_byte = chunk_byte_idx;
-            let global_byte = rope.char_to_byte(idx);
-            let local_byte = global_byte.saturating_sub(chunk_start_byte);
-            let prefix = &chunk[..local_byte];
-
-            for ch in prefix.chars().rev() {
-                idx -= 1;
-                if ch == start_ch {
-                    depth += 1;
-                } else if ch == matcher {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(idx);
-                    }
-                }
-
-                if idx == chunk_start_char {
-                    break;
+            idx -= 1;
+            let ch = rope.char(idx);
+            if ch == start_ch {
+                depth += 1;
+            } else if ch == matcher {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(idx);
                 }
             }
         }
@@ -526,7 +787,6 @@ fn contains_same_tag_closing(line: &str, tag_name: &str) -> bool {
     line.contains(&format!("</{}", tag_name))
 }
 
-#[frb(sync)]
 pub fn words_extract(rope: &RopeBridge) -> Vec<String> {
     let mut words = HashSet::new();
     let mut current_word = String::new();
@@ -537,12 +797,18 @@ pub fn words_extract(rope: &RopeBridge) -> Vec<String> {
             current_word.push(ch);
         } else {
             if !current_word.is_empty() {
-                words.insert(mem::take(&mut current_word));
+                if words.len() < 5_000 {
+                    words.insert(mem::take(&mut current_word));
+                } else {
+                    current_word.clear();
+                }
             }
         }
     }
     if !current_word.is_empty() {
-        words.insert(current_word);
+        if words.len() < 5_000 {
+            words.insert(current_word);
+        }
     }
     
     words.into_iter().collect()

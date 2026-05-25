@@ -4,12 +4,12 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'code_forge'
-  s.version          = '0.0.1'
+  s.version          = '10.0.0'
   s.summary          = 'A new Flutter FFI plugin project.'
   s.description      = <<-DESC
 A new Flutter FFI plugin project.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'http://github.com/heckmon/code_forge'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.module_name      = 'code_forge'

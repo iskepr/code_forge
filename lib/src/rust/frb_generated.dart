@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1274432317;
+  int get rustContentHash => 434014572;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -79,7 +79,24 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  ViewportFrame crateApiEditorLayoutMapBuildViewportFrame({
+    required LayoutMap that,
+    required double viewTop,
+    required double viewBottom,
+    required double fallbackLineHeight,
+  });
+
   void crateApiEditorLayoutMapClear({required LayoutMap that});
+
+  void crateApiEditorLayoutMapInsertLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  });
+
+  BigInt crateApiEditorLayoutMapLenLines({required LayoutMap that});
 
   LayoutMap crateApiEditorLayoutMapNew();
 
@@ -88,6 +105,32 @@ abstract class RustLibApi extends BaseApi {
     required BigInt lenChars,
     required double height,
     required bool isFolded,
+  });
+
+  void crateApiEditorLayoutMapRemoveLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+  });
+
+  double crateApiEditorLayoutMapTotalHeight({required LayoutMap that});
+
+  void crateApiEditorLayoutMapUpdateLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  });
+
+  VisibleLineRange crateApiEditorLayoutMapVisibleRangeByHeight({
+    required LayoutMap that,
+    required double viewTop,
+    required double viewBottom,
+  });
+
+  int crateApiEditorLayoutMapVisualLineFromCharOffset({
+    required LayoutMap that,
+    required BigInt charOffset,
   });
 
   List<String> crateApiRopeRopeBridgeCachedLines({required RopeBridge that});
@@ -111,6 +154,8 @@ abstract class RustLibApi extends BaseApi {
   RopeBridge crateApiRopeRopeBridgeCopy({required RopeBridge that});
 
   RopeBridge crateApiRopeRopeBridgeCreate({required String initialText});
+
+  RopeBridge crateApiRopeRopeBridgeDeepClone({required RopeBridge that});
 
   BigInt crateApiRopeRopeBridgeFindLineEnd({
     required RopeBridge that,
@@ -198,6 +243,8 @@ abstract class RustLibApi extends BaseApi {
     required double lineHeight,
   });
 
+  Future<CharOffset> crateApiEditorCharOffsetDefault();
+
   Future<List<RustFoldRange>> crateApiEditorFoldsComputeAll({
     required RopeBridge rope,
   });
@@ -216,7 +263,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiEditorInitApp();
 
+  Future<LineCount> crateApiEditorLineCountDefault();
+
   Future<LineSummary> crateApiEditorLineSummaryDefault();
+
+  Future<PixelHeight> crateApiEditorPixelHeightDefault();
 
   VisibleLineRange crateApiEditorVisibleLineRangeUnwrapped({
     required int totalLines,
@@ -225,7 +276,7 @@ abstract class RustLibApi extends BaseApi {
     required double lineHeight,
   });
 
-  List<String> crateApiEditorWordsExtract({required RopeBridge rope});
+  Future<List<String>> crateApiEditorWordsExtract({required RopeBridge rope});
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_LayoutMap;
@@ -253,6 +304,43 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  ViewportFrame crateApiEditorLayoutMapBuildViewportFrame({
+    required LayoutMap that,
+    required double viewTop,
+    required double viewBottom,
+    required double fallbackLineHeight,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_f_64(viewTop, serializer);
+          sse_encode_f_64(viewBottom, serializer);
+          sse_encode_f_64(fallbackLineHeight, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_viewport_frame,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapBuildViewportFrameConstMeta,
+        argValues: [that, viewTop, viewBottom, fallbackLineHeight],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapBuildViewportFrameConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_build_viewport_frame",
+        argNames: ["that", "viewTop", "viewBottom", "fallbackLineHeight"],
+      );
+
+  @override
   void crateApiEditorLayoutMapClear({required LayoutMap that}) {
     return handler.executeSync(
       SyncTask(
@@ -262,7 +350,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -279,12 +367,77 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "LayoutMap_clear", argNames: ["that"]);
 
   @override
+  void crateApiEditorLayoutMapInsertLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_usize(lineIdx, serializer);
+          sse_encode_usize(lenChars, serializer);
+          sse_encode_f_32(height, serializer);
+          sse_encode_bool(isFolded, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapInsertLineConstMeta,
+        argValues: [that, lineIdx, lenChars, height, isFolded],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapInsertLineConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_insert_line",
+        argNames: ["that", "lineIdx", "lenChars", "height", "isFolded"],
+      );
+
+  @override
+  BigInt crateApiEditorLayoutMapLenLines({required LayoutMap that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_usize,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapLenLinesConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapLenLinesConstMeta =>
+      const TaskConstMeta(debugName: "LayoutMap_len_lines", argNames: ["that"]);
+
+  @override
   LayoutMap crateApiEditorLayoutMapNew() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
         },
         codec: SseCodec(
           decodeSuccessData:
@@ -319,7 +472,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_usize(lenChars, serializer);
           sse_encode_f_32(height, serializer);
           sse_encode_bool(isFolded, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -339,6 +492,175 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  void crateApiEditorLayoutMapRemoveLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_usize(lineIdx, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapRemoveLineConstMeta,
+        argValues: [that, lineIdx],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapRemoveLineConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_remove_line",
+        argNames: ["that", "lineIdx"],
+      );
+
+  @override
+  double crateApiEditorLayoutMapTotalHeight({required LayoutMap that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_f_64,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapTotalHeightConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapTotalHeightConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_total_height",
+        argNames: ["that"],
+      );
+
+  @override
+  void crateApiEditorLayoutMapUpdateLine({
+    required LayoutMap that,
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_RefMut_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_usize(lineIdx, serializer);
+          sse_encode_usize(lenChars, serializer);
+          sse_encode_f_32(height, serializer);
+          sse_encode_bool(isFolded, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapUpdateLineConstMeta,
+        argValues: [that, lineIdx, lenChars, height, isFolded],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapUpdateLineConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_update_line",
+        argNames: ["that", "lineIdx", "lenChars", "height", "isFolded"],
+      );
+
+  @override
+  VisibleLineRange crateApiEditorLayoutMapVisibleRangeByHeight({
+    required LayoutMap that,
+    required double viewTop,
+    required double viewBottom,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_f_64(viewTop, serializer);
+          sse_encode_f_64(viewBottom, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_visible_line_range,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapVisibleRangeByHeightConstMeta,
+        argValues: [that, viewTop, viewBottom],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapVisibleRangeByHeightConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_visible_range_by_height",
+        argNames: ["that", "viewTop", "viewBottom"],
+      );
+
+  @override
+  int crateApiEditorLayoutMapVisualLineFromCharOffset({
+    required LayoutMap that,
+    required BigInt charOffset,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+            that,
+            serializer,
+          );
+          sse_encode_usize(charOffset, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_i_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLayoutMapVisualLineFromCharOffsetConstMeta,
+        argValues: [that, charOffset],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLayoutMapVisualLineFromCharOffsetConstMeta =>
+      const TaskConstMeta(
+        debugName: "LayoutMap_visual_line_from_char_offset",
+        argNames: ["that", "charOffset"],
+      );
+
+  @override
   List<String> crateApiRopeRopeBridgeCachedLines({required RopeBridge that}) {
     return handler.executeSync(
       SyncTask(
@@ -348,7 +670,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
@@ -383,7 +705,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(startLine, serializer);
           sse_encode_usize(endLine, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
@@ -416,7 +738,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(position, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -449,7 +771,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(charIdx, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -478,7 +800,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 16)!;
         },
         codec: SseCodec(
           decodeSuccessData:
@@ -502,7 +824,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(initialText, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 9)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 17)!;
         },
         codec: SseCodec(
           decodeSuccessData:
@@ -523,6 +845,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  RopeBridge crateApiRopeRopeBridgeDeepClone({required RopeBridge that}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
+            that,
+            serializer,
+          );
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRopeRopeBridgeDeepCloneConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRopeRopeBridgeDeepCloneConstMeta =>
+      const TaskConstMeta(
+        debugName: "RopeBridge_deep_clone",
+        argNames: ["that"],
+      );
+
+  @override
   BigInt crateApiRopeRopeBridgeFindLineEnd({
     required RopeBridge that,
     required BigInt offset,
@@ -536,7 +888,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(offset, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 10)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 19)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -569,7 +921,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(offset, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 20)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -602,7 +954,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(lineIndex, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 12)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 21)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_bi_di_segment,
@@ -637,7 +989,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(start, serializer);
           sse_encode_usize(end, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_bi_di_segment,
@@ -666,7 +1018,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 14)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 23)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -698,7 +1050,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(charIdx, serializer);
           sse_encode_String(text, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 15)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -727,7 +1079,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 16)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -756,7 +1108,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 17)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -789,7 +1141,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(lineIdx, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 18)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -821,7 +1173,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_usize(lineIdx, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 19)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 28)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_usize,
@@ -852,7 +1204,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 20)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_text_direction,
@@ -887,7 +1239,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(start, serializer);
           sse_encode_usize(end, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 21)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -930,7 +1282,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_bool(preserveOldCursor, serializer);
           sse_encode_usize(oldBase, serializer);
           sse_encode_usize(oldExtent, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 22)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 31)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_selection_state,
@@ -977,7 +1329,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 23)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 32)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_selection_state,
@@ -1012,7 +1364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(baseOffset, serializer);
           sse_encode_usize(extentOffset, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 24)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1047,7 +1399,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_usize(start, serializer);
           sse_encode_usize(end, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 25)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1078,7 +1430,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 26)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 35)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_text_direction,
@@ -1115,7 +1467,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_f_64(viewTop, serializer);
           sse_encode_f_64(viewBottom, serializer);
           sse_encode_f_64(lineHeight, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 36)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_viewport_frame,
@@ -1135,6 +1487,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<CharOffset> crateApiEditorCharOffsetDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 37,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_char_offset,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorCharOffsetDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorCharOffsetDefaultConstMeta =>
+      const TaskConstMeta(debugName: "char_offset_default", argNames: []);
+
+  @override
   Future<List<RustFoldRange>> crateApiEditorFoldsComputeAll({
     required RopeBridge rope,
   }) {
@@ -1149,7 +1528,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1181,7 +1560,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_i_32(targetOffset, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_i_64,
@@ -1218,7 +1597,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_usize(firstVisible, serializer);
           sse_encode_usize(lastVisible, serializer);
           sse_encode_usize(tabSize, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 40)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_guide_block,
@@ -1246,7 +1625,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1265,6 +1644,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
+  Future<LineCount> crateApiEditorLineCountDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 42,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_line_count,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorLineCountDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorLineCountDefaultConstMeta =>
+      const TaskConstMeta(debugName: "line_count_default", argNames: []);
+
+  @override
   Future<LineSummary> crateApiEditorLineSummaryDefault() {
     return handler.executeNormal(
       NormalTask(
@@ -1273,7 +1679,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1292,6 +1698,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "line_summary_default", argNames: []);
 
   @override
+  Future<PixelHeight> crateApiEditorPixelHeightDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 44,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_pixel_height,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEditorPixelHeightDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEditorPixelHeightDefaultConstMeta =>
+      const TaskConstMeta(debugName: "pixel_height_default", argNames: []);
+
+  @override
   VisibleLineRange crateApiEditorVisibleLineRangeUnwrapped({
     required int totalLines,
     required double viewTop,
@@ -1306,7 +1739,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_f_64(viewTop, serializer);
           sse_encode_f_64(viewBottom, serializer);
           sse_encode_f_64(lineHeight, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 45)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_visible_line_range,
@@ -1326,16 +1759,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  List<String> crateApiEditorWordsExtract({required RopeBridge rope}) {
-    return handler.executeSync(
-      SyncTask(
-        callFfi: () {
+  Future<List<String>> crateApiEditorWordsExtract({required RopeBridge rope}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
             rope,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 46,
+            port: port_,
+          );
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
@@ -1395,6 +1833,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  LayoutMap
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return LayoutMapImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
   RopeBridge
   dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
     dynamic raw,
@@ -1447,6 +1894,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CharOffset dco_decode_char_offset(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 1)
+      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    return CharOffset(field0: dco_decode_usize(arr[0]));
+  }
+
+  @protected
   double dco_decode_f_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
@@ -1482,6 +1938,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  LineCount dco_decode_line_count(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 1)
+      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    return LineCount(field0: dco_decode_usize(arr[0]));
   }
 
   @protected
@@ -1531,6 +1996,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<RustFoldRange> dco_decode_list_rust_fold_range(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_rust_fold_range).toList();
+  }
+
+  @protected
+  PixelHeight dco_decode_pixel_height(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 1)
+      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    return PixelHeight(field0: dco_decode_f_32(arr[0]));
   }
 
   @protected
@@ -1645,6 +2119,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  LayoutMap
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return LayoutMapImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
   RopeBridge
   sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
     SseDeserializer deserializer,
@@ -1707,6 +2193,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CharOffset sse_decode_char_offset(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_field0 = sse_decode_usize(deserializer);
+    return CharOffset(field0: var_field0);
+  }
+
+  @protected
   double sse_decode_f_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat32();
@@ -1743,6 +2236,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  LineCount sse_decode_line_count(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_field0 = sse_decode_usize(deserializer);
+    return LineCount(field0: var_field0);
   }
 
   @protected
@@ -1827,6 +2327,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ans_.add(sse_decode_rust_fold_range(deserializer));
     }
     return ans_;
+  }
+
+  @protected
+  PixelHeight sse_decode_pixel_height(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_field0 = sse_decode_f_32(deserializer);
+    return PixelHeight(field0: var_field0);
   }
 
   @protected
@@ -1941,6 +2448,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerLayoutMap(
+    LayoutMap self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as LayoutMapImpl).frbInternalSseEncode(move: false),
+      serializer,
+    );
+  }
+
+  @protected
+  void
   sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerRopeBridge(
     RopeBridge self,
     SseSerializer serializer,
@@ -1999,6 +2519,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_char_offset(CharOffset self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(self.field0, serializer);
+  }
+
+  @protected
   void sse_encode_f_32(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat32(self);
@@ -2029,6 +2555,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_line_count(LineCount self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(self.field0, serializer);
   }
 
   @protected
@@ -2104,6 +2636,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     for (final item in self) {
       sse_encode_rust_fold_range(item, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_pixel_height(PixelHeight self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_f_32(self.field0, serializer);
   }
 
   @protected
@@ -2189,7 +2727,34 @@ class LayoutMapImpl extends RustOpaque implements LayoutMap {
         RustLib.instance.api.rust_arc_decrement_strong_count_LayoutMapPtr,
   );
 
+  ViewportFrame buildViewportFrame({
+    required double viewTop,
+    required double viewBottom,
+    required double fallbackLineHeight,
+  }) => RustLib.instance.api.crateApiEditorLayoutMapBuildViewportFrame(
+    that: this,
+    viewTop: viewTop,
+    viewBottom: viewBottom,
+    fallbackLineHeight: fallbackLineHeight,
+  );
+
   void clear() => RustLib.instance.api.crateApiEditorLayoutMapClear(that: this);
+
+  void insertLine({
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  }) => RustLib.instance.api.crateApiEditorLayoutMapInsertLine(
+    that: this,
+    lineIdx: lineIdx,
+    lenChars: lenChars,
+    height: height,
+    isFolded: isFolded,
+  );
+
+  BigInt lenLines() =>
+      RustLib.instance.api.crateApiEditorLayoutMapLenLines(that: this);
 
   void pushLine({
     required BigInt lenChars,
@@ -2201,6 +2766,40 @@ class LayoutMapImpl extends RustOpaque implements LayoutMap {
     height: height,
     isFolded: isFolded,
   );
+
+  void removeLine({required BigInt lineIdx}) => RustLib.instance.api
+      .crateApiEditorLayoutMapRemoveLine(that: this, lineIdx: lineIdx);
+
+  double totalHeight() =>
+      RustLib.instance.api.crateApiEditorLayoutMapTotalHeight(that: this);
+
+  void updateLine({
+    required BigInt lineIdx,
+    required BigInt lenChars,
+    required double height,
+    required bool isFolded,
+  }) => RustLib.instance.api.crateApiEditorLayoutMapUpdateLine(
+    that: this,
+    lineIdx: lineIdx,
+    lenChars: lenChars,
+    height: height,
+    isFolded: isFolded,
+  );
+
+  VisibleLineRange visibleRangeByHeight({
+    required double viewTop,
+    required double viewBottom,
+  }) => RustLib.instance.api.crateApiEditorLayoutMapVisibleRangeByHeight(
+    that: this,
+    viewTop: viewTop,
+    viewBottom: viewBottom,
+  );
+
+  int visualLineFromCharOffset({required BigInt charOffset}) =>
+      RustLib.instance.api.crateApiEditorLayoutMapVisualLineFromCharOffset(
+        that: this,
+        charOffset: charOffset,
+      );
 }
 
 @sealed
@@ -2242,6 +2841,9 @@ class RopeBridgeImpl extends RustOpaque implements RopeBridge {
 
   RopeBridge copy() =>
       RustLib.instance.api.crateApiRopeRopeBridgeCopy(that: this);
+
+  RopeBridge deepClone() =>
+      RustLib.instance.api.crateApiRopeRopeBridgeDeepClone(that: this);
 
   BigInt findLineEnd({required BigInt offset}) => RustLib.instance.api
       .crateApiRopeRopeBridgeFindLineEnd(that: this, offset: offset);

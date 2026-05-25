@@ -33,3 +33,5 @@ migrate_working_dir/
 /example/lib/little_code.dart
 /example/lib/big_code.dart
 rust/target
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/Generated.xcconfig
