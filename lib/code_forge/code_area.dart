@@ -4048,6 +4048,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   bool _selectionActive = false, _isDragging = false;
   bool _draggingStartHandle = false, _draggingEndHandle = false;
   bool _showBubble = false, _draggingCHandle = false, _readOnly;
+  bool _suppressCodeActionDismissOnce = false;
   bool _isDeferringLayout = false, _hasCachedHeight = false;
   bool _isCachedHeightExact = false;
   bool _caretSyncAfterLayoutScheduled = false;
@@ -4246,6 +4247,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final currentFile = filePath;
     if (config == null || currentFile == null) return;
     if (!config.capabilities.semanticHighlighting) return;
+    if (!config.supportsSemanticTokensPull) return;
     if (!config.isInitialized || controller.openedFile != currentFile) return;
     if (controller.lineCount <= 0) return;
 
@@ -4316,6 +4318,30 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final p = builder.build();
     p.layout(ui.ParagraphConstraints(width: width ?? double.infinity));
     return p;
+  }
+
+  double _measureLeadingWhitespaceWidth(String lineText) {
+    final leadingWhitespaceLength = lineText.length - lineText.trimLeft().length;
+    if (leadingWhitespaceLength <= 0) {
+      return 0;
+    }
+
+    final tabSize = max(1, controller.tabSize);
+    final normalized = StringBuffer();
+    var visualColumn = 0;
+
+    for (final rune in lineText.substring(0, leadingWhitespaceLength).runes) {
+      if (rune == 0x09) {
+        final spaces = tabSize - (visualColumn % tabSize);
+        normalized.write(' ' * spaces);
+        visualColumn += spaces;
+      } else {
+        normalized.writeCharCode(rune);
+        visualColumn += 1;
+      }
+    }
+
+    return _buildParagraph(normalized.toString()).longestLine;
   }
 
   ui.Paragraph _buildHighlightedParagraph(
@@ -7593,17 +7619,27 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             );
             actionBulbPainter.layout();
 
+            final lineText = _lineTextCache[i] ?? controller.getLineText(i);
+            final leadingWhitespaceWidth = _measureLeadingWhitespaceWidth(
+              lineText,
+            );
+
             final bulbX = isRTL
                 ? (isMobile
                       ? offset.dx + size.width - actionBulbPainter.width - 4
                       : offset.dx + size.width - _gutterWidth + 4)
-                : (isMobile
-                      ? offset.dx +
-                            _gutterWidth -
-                            actionBulbPainter.width -
-                            (baseLineNumberStyle.fontSize ?? 14) +
-                            4
-                      : offset.dx + 4);
+                : (leadingWhitespaceWidth >= actionBulbPainter.width + 4
+                  ? offset.dx +
+                    _gutterWidth +
+                    (innerPadding?.left ?? 0) -
+                    (lineWrap ? 0 : _effectiveHScroll)
+                  : (isMobile
+                    ? offset.dx +
+                      _gutterWidth -
+                      actionBulbPainter.width -
+                      (baseLineNumberStyle.fontSize ?? 14) +
+                      4
+                    : offset.dx + 4));
             final bulbY =
                 offset.dy +
                 (innerPadding?.top ?? 0) +
@@ -10413,6 +10449,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           if (entry.value.contains(localPosition)) {
             suggestionNotifier.value = null;
             lspActionOffsetNotifier.value = event.localPosition;
+            _suppressCodeActionDismissOnce = true;
             return;
           }
         }
@@ -10466,8 +10503,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
           if (lspActionNotifier.value != null ||
               lspActionOffsetNotifier.value != null) {
-            lspActionNotifier.value = null;
-            lspActionOffsetNotifier.value = null;
+            if (_suppressCodeActionDismissOnce) {
+              _suppressCodeActionDismissOnce = false;
+            } else {
+              lspActionNotifier.value = null;
+              lspActionOffsetNotifier.value = null;
+            }
           }
         };
 
@@ -10527,8 +10568,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             signatureNotifier.value = null;
           }
           if (lspActionNotifier.value != null) {
-            lspActionNotifier.value = null;
-            lspActionOffsetNotifier.value = null;
+            if (_suppressCodeActionDismissOnce) {
+              _suppressCodeActionDismissOnce = false;
+            } else {
+              lspActionNotifier.value = null;
+              lspActionOffsetNotifier.value = null;
+            }
           }
         };
 
@@ -10708,6 +10753,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   MouseCursor get cursor {
+    if (_actionBulbRects.isNotEmpty) {
+      for (final rect in _actionBulbRects.values) {
+        if (rect.contains(_currentPosition)) {
+          return SystemMouseCursors.click;
+        }
+      }
+    }
+
     final isInGutter = isRTL
         ? _currentPosition.dx > size.width - _gutterWidth
         : _currentPosition.dx >= 0 && _currentPosition.dx < _gutterWidth;
@@ -10736,14 +10789,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final foldRange = _getFoldRangeAtLine(hoveredLine);
       if (foldRange != null && foldRange.endIndex > foldRange.startIndex) {
         return SystemMouseCursors.click;
-      }
-
-      if (_actionBulbRects.isNotEmpty) {
-        for (final rect in _actionBulbRects.values) {
-          if (rect.contains(_currentPosition)) {
-            return SystemMouseCursors.click;
-          }
-        }
       }
 
       return MouseCursor.defer;

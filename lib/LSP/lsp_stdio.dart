@@ -62,6 +62,9 @@ class LspStdioConfig extends LspConfig {
   ///```
   final String executable;
 
+  @override
+  bool get forceFullDocumentSync => executable.contains('ccls');
+
   /// Optional arguments for the executable.
   final List<String>? args;
 
@@ -97,6 +100,11 @@ class LspStdioConfig extends LspConfig {
     bool disableWarning = false,
     bool disableError = false,
   }) async {
+    final effectiveInitializationOptions = _withCclsInitializationDefaults(
+      executable,
+      initializationOptions,
+    );
+
     final config = LspStdioConfig._(
       executable: executable,
       languageId: languageId,
@@ -106,11 +114,60 @@ class LspStdioConfig extends LspConfig {
       disableWarning: disableWarning,
       disableError: disableError,
       capabilities: capabilities,
-      initializationOptions: initializationOptions,
+      initializationOptions: effectiveInitializationOptions,
       workspaceConfiguration: workspaceConfiguration,
     );
     await config._startProcess();
     return config;
+  }
+
+  static Map<String, dynamic> _withCclsInitializationDefaults(
+    String executable,
+    Map<String, dynamic> initializationOptions,
+  ) {
+    if (!executable.toLowerCase().contains('ccls')) {
+      return initializationOptions;
+    }
+
+    final defaults = <String, dynamic>{
+      'highlight': {'enabled': true, 'lsRanges': true},
+      'index': {'onChange': true},
+    };
+
+    return _deepMergeMaps(defaults, initializationOptions);
+  }
+
+  static Map<String, dynamic> _deepMergeMaps(
+    Map<String, dynamic> base,
+    Map<String, dynamic> overrides,
+  ) {
+    final merged = <String, dynamic>{};
+
+    for (final entry in base.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        merged[entry.key] = Map<String, dynamic>.from(
+          value.cast<dynamic, dynamic>(),
+        );
+      } else {
+        merged[entry.key] = value;
+      }
+    }
+
+    for (final entry in overrides.entries) {
+      final existing = merged[entry.key];
+      final incoming = entry.value;
+      if (existing is Map && incoming is Map) {
+        merged[entry.key] = _deepMergeMaps(
+          Map<String, dynamic>.from(existing.cast<dynamic, dynamic>()),
+          Map<String, dynamic>.from(incoming.cast<dynamic, dynamic>()),
+        );
+      } else {
+        merged[entry.key] = incoming;
+      }
+    }
+
+    return merged;
   }
 
   Future<void> _startProcess() async {

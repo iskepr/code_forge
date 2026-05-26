@@ -98,3 +98,23 @@ class Render2DCodeField extends RenderTwoDimensionalViewport {
     }
   }
 }
+
+class CustomScrollbar extends RawScrollbar{
+  const CustomScrollbar({
+    super.key,
+    required super.child,
+    required super.controller
+  });
+
+  @override
+  RawScrollbarState<RawScrollbar> createState() => _CustomScrollbarState();
+  
+}
+
+class _CustomScrollbarState extends RawScrollbarState<CustomScrollbar>{
+  @override
+  void updateScrollbarPainter() {
+    
+    super.updateScrollbarPainter();
+  }
+}

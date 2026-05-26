@@ -47,9 +47,6 @@ flutter:
     - family: Class
       fonts:
         - asset: assets/icons/class.ttf
-    - family: Reference
-      fonts:
-        - asset: assets/icons/reference.ttf
     - family: Struct
       fonts:
         - asset: assets/icons/struct.ttf
@@ -59,9 +56,6 @@ flutter:
     - family: Operator
       fonts:
         - asset: assets/icons/operator.ttf
-    - family: Parameter
-      fonts:
-        - asset: assets/icons/parameter.ttf
     - family: Interface
       fonts:
         - asset: assets/icons/interface.ttf

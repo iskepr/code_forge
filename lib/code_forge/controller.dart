@@ -66,6 +66,7 @@ class CodeForgeController implements DeltaTextInputClient {
   bool deleteFoldRangeOnDeletingFirstLine = false;
   bool _lspReady = false, _isTyping = false, _isDisposed = false;
   bool _usesCclsSemanticHighlight = false, _suppressLspFallbackSync = false;
+  bool _cclsForcedRefreshAttempted = false;
   bool _lspFoldRangesAdjustedNotFetched = false;
   bool _inlayHintsVisible = false, documentHighlightsChanged = false;
   int _imeProjectionStartOffset = 0, _completionRequestId = 0;
@@ -189,6 +190,7 @@ class CodeForgeController implements DeltaTextInputClient {
               );
             } else {
               if (!_isDisposed) diagnosticsNotifier.value = [];
+              if (!_isDisposed) codeActionsNotifier.value = null;
             }
           }
 
@@ -204,6 +206,20 @@ class CodeForgeController implements DeltaTextInputClient {
                   symbols != null) {
                 _usesCclsSemanticHighlight = true;
                 final tokens = _convertCclsSymbolsToTokens(symbols);
+
+                if (tokens.isEmpty &&
+                    !_cclsForcedRefreshAttempted &&
+                    lspConfig != null &&
+                    openedFile != null) {
+                  _cclsForcedRefreshAttempted = true;
+                  unawaited(() async {
+                    try {
+                      await lspConfig!.updateDocument(openedFile!, text);
+                      await lspConfig!.saveDocument(openedFile!, text);
+                    } catch (_) {}
+                  }());
+                }
+
                 if (!_isDisposed) {
                   semanticTokens.value = (tokens, _semanticTokensVersion++);
                 }
@@ -279,6 +295,15 @@ class CodeForgeController implements DeltaTextInputClient {
       }
       await lspConfig!.openDocument(openedFile!);
       _lspReady = true;
+      _cclsForcedRefreshAttempted = false;
+
+      // ccls-style semantic highlight is push-only and often emitted after save.
+      if (lspConfig!.capabilities.semanticHighlighting &&
+          !lspConfig!.supportsSemanticTokensPull) {
+        await lspConfig!.updateDocument(openedFile!, text);
+        await lspConfig!.saveDocument(openedFile!, text);
+      }
+
       await fetchDocumentColors();
       await fetchLSPFoldRanges();
     } catch (e) {
@@ -299,12 +324,19 @@ class CodeForgeController implements DeltaTextInputClient {
       _lspTypingTimer = Timer(_lspTypingDebounce, () async {
         if (_isDisposed || !_lspReady || openedFile == null) return;
 
+        // Keep ccls (push-only semantic server) in lockstep with immediate
+        // document changes; this mirrors the pre-refactor behavior from main.
+        if (!(lspConfig?.supportsSemanticTokensPull ?? true)) {
+          await lspConfig!.updateDocument(openedFile!, currentText);
+        }
+
         if (_usesCclsSemanticHighlight && !_isDisposed) {
           semanticTokens.value = (null, _semanticTokensVersion++);
           _scheduleCclsRefresh();
         }
 
-        if (lspConfig?.capabilities.semanticHighlighting ?? false) {
+        if ((lspConfig?.capabilities.semanticHighlighting ?? false) &&
+            (lspConfig?.supportsSemanticTokensPull ?? false)) {
           semanticTokens.value = (null, _semanticTokensVersion++);
         }
 
@@ -365,6 +397,7 @@ class CodeForgeController implements DeltaTextInputClient {
           _lspReady &&
           _usesCclsSemanticHighlight &&
           openedFile != null) {
+        await lspConfig!.updateDocument(openedFile!, text);
         await lspConfig!.saveDocument(openedFile!, text);
       }
     });
@@ -1610,7 +1643,13 @@ class CodeForgeController implements DeltaTextInputClient {
         "No file found.\nPlease open a file by providing a valid filePath to the CodeForge widget",
       );
     }
-    File(openedFile!).writeAsStringSync(text);
+    final file = File(openedFile!);
+    if(!file.existsSync()){
+      throw FlutterError(
+        "No file found.\nPlease open a file by providing a valid filePath to the CodeForge widget",
+      );
+    }
+    file.writeAsStringSync(text);
   }
 
   /// Moves the cursor one character to the left.
@@ -2536,6 +2575,13 @@ class CodeForgeController implements DeltaTextInputClient {
       return;
     }
 
+    // Some push-only semantic servers (e.g., ccls) can lose highlight state
+    // with ranged incremental sync. Use full-document sync for compatibility.
+    if (!config.supportsSemanticTokensPull) {
+      await config.updateDocument(file, text);
+      return;
+    }
+
     if (changes.isEmpty) return;
 
     await config.updateDocument(
@@ -3178,10 +3224,14 @@ class CodeForgeController implements DeltaTextInputClient {
     final safeEnd = end.clamp(safeStart, _rope.length);
     final deletedText =
         safeStart < safeEnd ? _rope.substring(safeStart, safeEnd) : '';
+    final supportsPullSemanticSync =
+        lspConfig?.supportsSemanticTokensPull ?? true;
 
     _suppressLspFallbackSync = true;
     try {
-      _scheduleLspIncrementalSync(safeStart, safeEnd, replacement);
+      if (supportsPullSemanticSync) {
+        _scheduleLspIncrementalSync(safeStart, safeEnd, replacement);
+      }
 
       final result = _rope.core.replaceRangeAndUpdateSelection(
         start: BigInt.from(safeStart),
@@ -3212,6 +3262,10 @@ class CodeForgeController implements DeltaTextInputClient {
         _recordDeletion(safeStart, deletedText, selectionBefore, _selection);
       } else if (replacement.isNotEmpty) {
         _recordInsertion(safeStart, replacement, selectionBefore, _selection);
+      }
+
+      if (!supportsPullSemanticSync) {
+        _scheduleLspFullSync(text);
       }
 
       _invalidateImeSnapshotAndScheduleSync();
@@ -3861,10 +3915,35 @@ class CodeForgeController implements DeltaTextInputClient {
 
       if (lsRanges != null && lsRanges.isNotEmpty) {
         for (final range in lsRanges) {
-          if (range is! List<dynamic> || range.length < 3) continue;
-          final line = range[0] as int;
-          final startChar = range[1] as int;
-          final endChar = range[2] as int;
+          int? line;
+          int? startChar;
+          int? endChar;
+
+          if (range is List<dynamic> && range.length >= 3) {
+            line = range[0] as int?;
+            startChar = range[1] as int?;
+            endChar = range[2] as int?;
+          } else if (range is Map<String, dynamic>) {
+            final start = range['start'] as Map<String, dynamic>?;
+            final end = range['end'] as Map<String, dynamic>?;
+            final startLine = start?['line'] as int?;
+            final endLine = end?['line'] as int?;
+            final startCharacter = start?['character'] as int?;
+            final endCharacter = end?['character'] as int?;
+
+            if (startLine != null &&
+                endLine != null &&
+                startCharacter != null &&
+                endCharacter != null &&
+                startLine == endLine) {
+              line = startLine;
+              startChar = startCharacter;
+              endChar = endCharacter;
+            }
+          }
+
+          if (line == null || startChar == null || endChar == null) continue;
+          if (endChar <= startChar) continue;
 
           tokens.add(
             LspSemanticToken(
