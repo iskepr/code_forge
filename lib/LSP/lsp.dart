@@ -1019,6 +1019,35 @@ sealed class LspConfig {
     return _decodeSemanticTokens(tokens);
   }
 
+  /// Gets semantic tokens for a specific visible range in the document.
+  Future<List<LspSemanticToken>> getSemanticTokensRange(
+    String filePath, {
+    required int startLine,
+    required int startCharacter,
+    required int endLine,
+    required int endCharacter,
+  }) async {
+    if (!capabilities.semanticHighlighting) return [];
+
+    final response = await sendRequest(
+      method: 'textDocument/semanticTokens/range',
+      params: {
+        'textDocument': {'uri': Uri.file(filePath).toString()},
+        'range': {
+          'start': {
+            'line': startLine,
+            'character': startCharacter,
+          },
+          'end': {'line': endLine, 'character': endCharacter},
+        },
+      },
+    );
+
+    final tokens = response['result']?['data'];
+    if (tokens is! List) return [];
+    return _decodeSemanticTokens(tokens);
+  }
+
   List<LspSemanticToken> _decodeSemanticTokens(List<dynamic> data) {
     final result = <LspSemanticToken>[];
     int line = 0, start = 0;

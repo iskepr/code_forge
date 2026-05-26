@@ -34,63 +34,58 @@ import 'package:flutter/services.dart';
 /// ```
 class CodeForgeController implements DeltaTextInputClient {
   static const _flushDelay = Duration(milliseconds: 100);
-  static const _semanticTokenDebounce = Duration(milliseconds: 500);
   static const _documentColorDebounce = Duration(milliseconds: 50);
   static const _documentHighlightDebounce = Duration(milliseconds: 300);
   static const _cclsRefreshDebounce = Duration(milliseconds: 1000);
-  static const _imeProjectionLineRadius = 2;
-  static const _imeProjectionMaxChars = 4096;
-  final List<VoidCallback> _listeners = [];
+  static const _imeProjectionLineRadius = 2, _imeProjectionMaxChars = 4096;
+  static const Duration _lspTypingDebounce = Duration(milliseconds: 300);
+  static const Duration _lspDocumentSyncDebounce = Duration(milliseconds: 200);
   final _isMobile = Platform.isAndroid || Platform.isIOS;
+  final List<VoidCallback> _listeners = [];
   final List<LineDecoration> _lineDecorations = [];
   final List<GutterDecoration> _gutterDecorations = [];
   final List<({int line, int character})> _multiCursors = [];
-  Timer? _flushTimer, _semanticTokenTimer, _codeActionTimer, _syncTimer;
+  final List<Map<String, dynamic>> _pendingLspContentChanges = [];
+  final List<VirtualRemovedBlock> _virtualRemovedBlocks = [];
+  void Function(int lineNumber)? _toggleFoldCallback;
+  void Function(int line)? _scrollToLineCallback;
+  Timer? _flushTimer, _codeActionTimer, _syncTimer;
   Timer? _documentColorTimer, _foldRangesTimer, _documentHighlightTimer;
   Timer? _cclsRefreshTimer, _debounceTimer;
-  Timer? _lspTypingTimer;
-  Timer? _lspDocumentSyncTimer;
-  static const Duration _lspTypingDebounce = Duration(milliseconds: 300);
-  static const Duration _lspDocumentSyncDebounce = Duration(milliseconds: 200);
-  String? _cachedText, _bufferLineText, _openedFile;
-  String _imeProjectionText = '';
-  String _previousValue = "";
+  Timer? _lspTypingTimer, _lspDocumentSyncTimer;
+  String? _cachedText, _bufferLineText, _openedFile, _pendingLspFullText;
+  String? _lastTypedCharacter;
+  String _imeProjectionText = '', _previousValue = "";
+  TextSelection? _lastSentSelection;
   TextSelection _prevSelection = const TextSelection.collapsed(offset: 0);
   TextSelection _imeProjectionSelection = const TextSelection.collapsed(
     offset: 0,
   );
   bool _bufferDirty = false, bufferNeedsRepaint = false, selectionOnly = false;
-  bool _imeProjectionDirty = true;
-  bool _imeSelectionNeedsResync = false;
-  final List<Map<String, dynamic>> _pendingLspContentChanges = [];
-  String? _pendingLspFullText;
-  int _imeProjectionStartOffset = 0;
-  int _bufferLineRopeStart = 0, _bufferLineOriginalLength = 0;
-  List<String>? _cachedBufferLines;
-  int _cachedTextVersion = -1, _currentVersion = 0, _semanticTokensVersion = 0;
-  int? dirtyLine, _bufferLineIndex;
-  int _completionRequestId = 0;
+  bool _imeProjectionDirty = true, _imeSelectionNeedsResync = false;
   bool deleteFoldRangeOnDeletingFirstLine = false;
-  TextSelection? _lastSentSelection;
-  String? _lastTypedCharacter;
-  UndoRedoController? _undoController;
-  void Function(int lineNumber)? _toggleFoldCallback;
-  void Function(int line)? _scrollToLineCallback;
-  VoidCallback? _foldAllCallback, _unfoldAllCallback;
   bool _lspReady = false, _isTyping = false, _isDisposed = false;
-  bool _usesCclsSemanticHighlight = false;
-  bool _suppressLspFallbackSync = false;
+  bool _usesCclsSemanticHighlight = false, _suppressLspFallbackSync = false;
+  bool _lspFoldRangesAdjustedNotFetched = false;
+  bool _inlayHintsVisible = false, documentHighlightsChanged = false;
+  int _imeProjectionStartOffset = 0, _completionRequestId = 0;
+  int _cachedTextVersion = -1, _currentVersion = 0, _semanticTokensVersion = 0;
+  int _bufferLineRopeStart = 0, _bufferLineOriginalLength = 0;
+  int? dirtyLine, _bufferLineIndex;
+  List<String>? _cachedBufferLines;
   List<dynamic> _suggestions = [];
-  StreamSubscription? _lspResponsesSubscription;
-  Set<String> _wordCache = {};
-  GhostText? _ghostText;
-  final List<VirtualRemovedBlock> _virtualRemovedBlocks = [];
   List<InlayHint> _inlayHints = [];
   List<DocumentColor> _documentColors = [];
   List<DocumentHighlight> _documentHighlights = [];
+  UndoRedoController? _undoController;
+  VoidCallback? _foldAllCallback, _unfoldAllCallback;
+  StreamSubscription? _lspResponsesSubscription;
+  Set<String> _wordCache = {};
+  GhostText? _ghostText;
   Map<int, FoldRange>? _lspFoldRanges;
-  bool _lspFoldRangesAdjustedNotFetched = false;
-  bool _inlayHintsVisible = false, documentHighlightsChanged = false;
+  String? _activeCompletionKey;
+  ({String filePath, String prefix, int line, int character})?
+  _queuedCompletionRequest;
 
   CodeForgeController({this.lspConfig}) {
     if (lspConfig != null) {
@@ -284,7 +279,6 @@ class CodeForgeController implements DeltaTextInputClient {
       }
       await lspConfig!.openDocument(openedFile!);
       _lspReady = true;
-      await _fetchSemanticTokensFull();
       await fetchDocumentColors();
       await fetchLSPFoldRanges();
     } catch (e) {
@@ -310,7 +304,10 @@ class CodeForgeController implements DeltaTextInputClient {
           _scheduleCclsRefresh();
         }
 
-        _scheduleSemantictokenRefresh();
+        if (lspConfig?.capabilities.semanticHighlighting ?? false) {
+          semanticTokens.value = (null, _semanticTokensVersion++);
+        }
+
         _scheduleDocumentColorRefresh();
         _scheduleFoldRangesRefresh();
 
@@ -378,7 +375,32 @@ class CodeForgeController implements DeltaTextInputClient {
     required int line,
     required int character,
   }) {
+    final filePath = openedFile;
+    if (!_lspReady || filePath == null) return;
+
+    final completionKey = '$filePath|$line|$character|$prefix';
+    if (_activeCompletionKey == completionKey) {
+      return;
+    }
+
+    if (_completionRequestId > 0 &&
+        _queuedCompletionRequest != null &&
+        _completionRequestKey(_queuedCompletionRequest!) == completionKey) {
+      return;
+    }
+
+    if (_activeCompletionKey != null) {
+      _queuedCompletionRequest = (
+        filePath: filePath,
+        prefix: prefix,
+        line: line,
+        character: character,
+      );
+      return;
+    }
+
     final requestId = ++_completionRequestId;
+    _activeCompletionKey = completionKey;
     unawaited(_fetchCompletions(requestId, prefix, line, character));
   }
 
@@ -399,12 +421,44 @@ class CodeForgeController implements DeltaTextInputClient {
     _suggestions = completions;
     _sortSuggestions(prefix);
     if (!_isDisposed) suggestionsNotifier.value = _suggestions;
+
+    final pendingCompletion = _queuedCompletionRequest;
+    _queuedCompletionRequest = null;
+    _activeCompletionKey = null;
+
+    if (pendingCompletion != null && !_isDisposed && _lspReady) {
+      final nextKey = _completionRequestKey(pendingCompletion);
+      if (openedFile == pendingCompletion.filePath) {
+        _activeCompletionKey = nextKey;
+        final nextRequestId = ++_completionRequestId;
+        unawaited(
+          _fetchCompletions(
+            nextRequestId,
+            pendingCompletion.prefix,
+            pendingCompletion.line,
+            pendingCompletion.character,
+          ),
+        );
+      }
+    }
+  }
+
+  String _completionRequestKey(
+    ({String filePath, String prefix, int line, int character}) request,
+  ) {
+    return '${request.filePath}|${request.line}|${request.character}|${request.prefix}';
   }
 
   /// The semantic tokens generated by the LSP server.
   /// Used for LSP based syntax highlighting.
   final ValueNotifier<(List<LspSemanticToken>?, int)> semanticTokens =
       ValueNotifier((null, 0));
+
+  int get documentVersion => _currentVersion;
+
+  void publishSemanticTokens(List<LspSemanticToken> tokens) {
+    semanticTokens.value = (tokens, _semanticTokensVersion++);
+  }
 
   /// A [ValueNotifier] used to for showing code suggestions.
   /// returnd [null] if no suggestions are available.
@@ -3587,7 +3641,6 @@ class CodeForgeController implements DeltaTextInputClient {
   /// memory leaks.
   void dispose() {
     _isDisposed = true;
-    _semanticTokenTimer?.cancel();
     _debounceTimer?.cancel();
     _flushTimer?.cancel();
     _codeActionTimer?.cancel();
@@ -3791,29 +3844,6 @@ class CodeForgeController implements DeltaTextInputClient {
   bool _isCompletionTriggerChar(String s) {
     if (s.isEmpty) return false;
     return s == '.' || s == ':' || s == '>' || s == '/' || s == '@';
-  }
-
-  Future<void> _fetchSemanticTokensFull() async {
-    if (lspConfig == null) return;
-    if (_usesCclsSemanticHighlight) {
-      return;
-    }
-
-    try {
-      final tokens = await lspConfig!.getSemanticTokensFull(openedFile!);
-      if (!_isDisposed) {
-        semanticTokens.value = (tokens, _semanticTokensVersion++);
-      }
-    } catch (e) {
-      debugPrint('Error fetching semantic tokens: $e');
-    }
-  }
-
-  void _scheduleSemantictokenRefresh() {
-    _semanticTokenTimer?.cancel();
-    _semanticTokenTimer = Timer(_semanticTokenDebounce, () async {
-      await _fetchSemanticTokensFull();
-    });
   }
 
   List<LspSemanticToken> _convertCclsSymbolsToTokens(List<dynamic> symbols) {
@@ -4161,8 +4191,6 @@ class CodeForgeController implements DeltaTextInputClient {
       _rope.insert(start, _bufferLineText!);
     }
 
-    // Buffer edits can keep a cursor beyond the rope's old length (e.g. last
-    // line typing). After commit, push the cached selection into rope.
     _rope.setSelection(_selectionCache);
 
     _bufferLineIndex = null;

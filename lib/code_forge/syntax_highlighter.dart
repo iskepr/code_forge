@@ -47,8 +47,7 @@ class SyntaxHighlighter {
   late final Map<String, TextStyle> _resolvedTheme;
   late final List<Mode> _registeredExtraLanguages;
   late final Map<String, List<String>> _semanticMapping;
-  final Map<int, HighlightedLine> _grammarCache = {};
-  final Map<int, HighlightedLine> _mergedCache = {};
+  final Map<int, HighlightedLine> _grammarCache = {}, _mergedCache = {};
   final Map<int, List<SemanticWordSpan>> _lineSemanticSpans = {};
   final Map<String, TextSpan?> _lineSpanCache = {};
   bool _isEditing = false;
@@ -86,7 +85,7 @@ class SyntaxHighlighter {
     String Function(int) getLineText,
     int lineCount,
   ) {
-    _lineSemanticSpans.clear();
+    final updatedLineSemanticSpans = <int, List<SemanticWordSpan>>{};
     final lineCache = <int, String>{};
 
     for (final token in tokens) {
@@ -103,7 +102,7 @@ class SyntaxHighlighter {
         final style = _resolveSemanticStyle(token.tokenTypeName);
 
         if (style != null && word.isNotEmpty) {
-          final lineSpans = _lineSemanticSpans.putIfAbsent(
+          final lineSpans = updatedLineSemanticSpans.putIfAbsent(
             token.line,
             () => [],
           );
@@ -119,8 +118,12 @@ class SyntaxHighlighter {
       }
     }
 
-    for (final spans in _lineSemanticSpans.values) {
+    for (final spans in updatedLineSemanticSpans.values) {
       spans.sort((a, b) => a.startChar.compareTo(b.startChar));
+    }
+
+    for (final entry in updatedLineSemanticSpans.entries) {
+      _lineSemanticSpans[entry.key] = entry.value;
     }
 
     _isEditing = false;
@@ -131,13 +134,38 @@ class SyntaxHighlighter {
   }
 
   void applyDocumentEdit(
+    int editLine,
     int editStart,
     int oldEnd,
     String insertedText,
     String fullText,
   ) {
     _documentVersion++;
-    _isEditing = true;
+    final insertedLineBreaks = '\n'.allMatches(insertedText).length;
+    final isPureInsertion = oldEnd == editStart;
+
+    if (insertedLineBreaks > 0 && isPureInsertion) {
+      final shiftedSemanticSpans = <int, List<SemanticWordSpan>>{};
+      for (final entry in _lineSemanticSpans.entries) {
+        final lineIndex = entry.key;
+        if (lineIndex > editLine) {
+          shiftedSemanticSpans[lineIndex + insertedLineBreaks] = entry.value;
+        } else {
+          shiftedSemanticSpans[lineIndex] = entry.value;
+        }
+      }
+
+      _lineSemanticSpans
+        ..clear()
+        ..addAll(shiftedSemanticSpans);
+      _grammarCache.removeWhere((line, _) => line >= editLine);
+      _mergedCache.removeWhere((line, _) => line >= editLine);
+      _isEditing = false;
+    } else {
+      _isEditing = true;
+    }
+
+    _lineSpanCache.clear();
     _version++;
   }
 

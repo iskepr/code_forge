@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:re_highlight/styles/lightfair.dart';
 
 import '../LSP/lsp.dart';
+
 import 'controller.dart';
 import 'find_controller.dart';
 import 'scroll.dart';
@@ -24,6 +25,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 
+const int kSemanticTokenViewportPaddingLines = 1500;
 const String _wordCharPattern = r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]';
 
 /// A highly customizable code editor widget for Flutter.
@@ -338,6 +340,10 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
   int _sugSelIndex = 0, _actionSelIndex = 0;
   String? _selectedSuggestionMd;
   Timer? _hoverTimer;
+  Timer? _semanticTokenTimer;
+  Timer? _hoverRequestTimer;
+  String? _activeHoverKey;
+  ({String key, Map<String, int> lineChar})? _queuedHoverRequest;
 
   @override
   void initState() {
@@ -605,7 +611,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       if (_hoverNotifier.value != null && mounted && !_hoverSetByTap) {
         _hoverTimer?.cancel();
         _hoverNotifier.value = null;
-        _hoverContentNotifier.value = null;
       }
 
       if (_hoverSetByTap) {
@@ -620,7 +625,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _hoverListener = () {
       final hov = _hoverNotifier.value;
       if (hov != null && _controller.lspConfig != null) {
-        _fetchHoverContent(hov.$2);
+        _requestHoverContent(hov.$2);
       } else {
         _hoverContentNotifier.value = null;
       }
@@ -833,10 +838,37 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _lspActionOffsetNotifier.value = _offsetNotifier.value;
   }
 
-  Future<void> _fetchHoverContent(Map<String, int> lineChar) async {
+  void _requestHoverContent(Map<String, int> lineChar) {
     final line = lineChar['line']!;
     final character = lineChar['character']!;
     final cacheKey = '$line:$character';
+
+    if (_activeHoverKey == cacheKey) {
+      return;
+    }
+
+    if (_queuedHoverRequest != null && _queuedHoverRequest!.key == cacheKey) {
+      return;
+    }
+
+    if (_activeHoverKey != null) {
+      _queuedHoverRequest = (key: cacheKey, lineChar: lineChar);
+      return;
+    }
+
+    _activeHoverKey = cacheKey;
+    _hoverRequestTimer?.cancel();
+    _hoverRequestTimer = Timer(Duration.zero, () {
+      unawaited(_fetchHoverContent(lineChar, cacheKey));
+    });
+  }
+
+  Future<void> _fetchHoverContent(
+    Map<String, int> lineChar,
+    String cacheKey,
+  ) async {
+    final line = lineChar['line']!;
+    final character = lineChar['character']!;
 
     if (_hoverCache.containsKey(cacheKey)) {
       if (_hoverNotifier.value != null &&
@@ -846,8 +878,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       }
       return;
     }
-
-    _hoverContentNotifier.value = null;
 
     try {
       String diagnosticMessage = '';
@@ -901,9 +931,22 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
           _hoverNotifier.value!.$2['character'] == character) {
         _hoverContentNotifier.value = result;
       }
+
+      _activeHoverKey = null;
+      final pendingHover = _queuedHoverRequest;
+      _queuedHoverRequest = null;
+      if (pendingHover != null && mounted) {
+        _requestHoverContent(pendingHover.lineChar);
+      }
     } catch (e) {
       debugPrint('Error fetching hover content: $e');
       _hoverContentNotifier.value = {};
+      _activeHoverKey = null;
+      final pendingHover = _queuedHoverRequest;
+      _queuedHoverRequest = null;
+      if (pendingHover != null && mounted) {
+        _requestHoverContent(pendingHover.lineChar);
+      }
     }
   }
 
@@ -943,6 +986,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _suggScrollController.dispose();
     _actionScrollController.dispose();
     _hoverTimer?.cancel();
+    _hoverRequestTimer?.cancel();
+    _semanticTokenTimer?.cancel();
     super.dispose();
   }
 
@@ -3999,6 +4044,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   bool _foldedLineCacheDirty = true;
   bool _asyncFoldComputationPending = false;
   Timer? _foldComputeTimer;
+  Timer? _semanticTokenTimer;
   bool _selectionActive = false, _isDragging = false;
   bool _draggingStartHandle = false, _draggingEndHandle = false;
   bool _showBubble = false, _draggingCHandle = false, _readOnly;
@@ -4011,6 +4057,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   double _longLineWidth = 0.0, _wrapWidth = double.infinity;
   double _cachedRtlContentWidth = 0.0;
   Timer? _resizeTimer, _layoutDebounceTimer;
+  Timer? _bracketHighlightResumeTimer;
+  int _lastSemanticTokenRequestVersion = -1;
+  int _lastSemanticTokenRequestStartLine = -1;
+  int _lastSemanticTokenRequestEndLine = -1;
+  int _semanticTokenRequestSerial = 0;
   double _cachedTotalHeight = 0.0;
   String? _aiResponse, _lastProcessedText;
   int _lastProcessedContentVersion = -1;
@@ -4021,10 +4072,20 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   int? _cachedSelectionMagnifierStartLine, _cachedSelectionMagnifierEndLine;
   int? _ghostTextAnchorLine, _highlightedLine;
   int _lastAppliedSemanticVersion = -1, _lastDocumentVersion = -1;
+  bool _suspendBracketHighlight = false;
   int _previousLineCount = 0;
   int _ghostTextLineCount = 0, _cachedLineCount = 0;
   int _virtualRemovedTotalLineCount = 0;
   Animation<double>? _lineHighlightAnimation;
+
+  void _pauseBracketHighlightDuringTyping() {
+    _suspendBracketHighlight = true;
+    _bracketHighlightResumeTimer?.cancel();
+    _bracketHighlightResumeTimer = Timer(const Duration(milliseconds: 500), () {
+      _suspendBracketHighlight = false;
+      markNeedsPaint();
+    });
+  }
 
   void updateSemanticTokens(List<LspSemanticToken> tokens, int version) {
     if (version < _lastAppliedSemanticVersion) return;
@@ -4178,6 +4239,67 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       _caretInfoCache.clear();
       _lineIndentCache.clear();
     }
+  }
+
+  void _scheduleVisibleSemanticTokens(int firstVisibleLine, int lastVisibleLine) {
+    final config = lspConfig;
+    final currentFile = filePath;
+    if (config == null || currentFile == null) return;
+    if (!config.capabilities.semanticHighlighting) return;
+    if (!config.isInitialized || controller.openedFile != currentFile) return;
+    if (controller.lineCount <= 0) return;
+
+    final currentVersion = controller.documentVersion;
+    final buffer = kSemanticTokenViewportPaddingLines;
+    final startLine = (firstVisibleLine - buffer)
+      .clamp(0, controller.lineCount - 1)
+      .toInt();
+    final endLine = (lastVisibleLine + buffer)
+      .clamp(0, controller.lineCount - 1)
+      .toInt();
+
+    if (_lastSemanticTokenRequestVersion == currentVersion &&
+        _lastSemanticTokenRequestStartLine == startLine &&
+        _lastSemanticTokenRequestEndLine == endLine) {
+      return;
+    }
+
+    _lastSemanticTokenRequestVersion = currentVersion;
+    _lastSemanticTokenRequestStartLine = startLine;
+    _lastSemanticTokenRequestEndLine = endLine;
+
+    _semanticTokenTimer?.cancel();
+    final requestSerial = ++_semanticTokenRequestSerial;
+    _semanticTokenTimer = Timer(const Duration(milliseconds: 180), () async {
+      if (_semanticTokenRequestSerial != requestSerial) return;
+      if (controller.documentVersion != currentVersion ||
+          controller.openedFile != currentFile ||
+          !config.isInitialized) {
+        return;
+      }
+
+      final endLineText = controller.getLineText(endLine);
+
+      try {
+        final tokens = await config.getSemanticTokensRange(
+          currentFile,
+          startLine: startLine,
+          startCharacter: 0,
+          endLine: endLine,
+          endCharacter: endLineText.length,
+        );
+
+        if (_semanticTokenRequestSerial != requestSerial) return;
+        if (controller.documentVersion != currentVersion ||
+            controller.openedFile != currentFile) {
+          return;
+        }
+
+        controller.publishSemanticTokens(tokens);
+      } catch (e) {
+        debugPrint('Error fetching visible semantic tokens: $e');
+      }
+    });
   }
 
   void updateDiagnostics(List<LspErrors> diagnostics) {
@@ -4993,11 +5115,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final textChanged = newText != previousText;
 
     if (textChanged) {
-      _indentGuideCache.clear();
-      _indentEndLineCache.clear();
-      _lineIndentCache.clear();
       _caretInfoCache.clear();
       _cachedCaretOffset = -1;
+      _pauseBracketHighlightDuringTyping();
     }
 
     final dirtyRange = controller.dirtyRegion;
@@ -5007,24 +5127,26 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final delta = newText.length - previousText.length;
       final removedLength = max(insertedText.length - delta, 0);
       final oldEnd = dirtyRange.start + removedLength;
+      final editLine = controller.getLineAtOffset(dirtyRange.start);
 
       _syntaxHighlighter.applyDocumentEdit(
+        editLine,
         dirtyRange.start,
         oldEnd,
         insertedText,
         newText,
       );
 
-      _paragraphCache.clear();
-      _bracketCache.clear();
-      _lineTextCache.clear();
-      _indentGuideCache.clear();
+      final invalidateFromLine = max(0, editLine);
+      _paragraphCache.removeWhere((line, _) => line >= invalidateFromLine);
+      _bracketCache.removeWhere((pos, _) => pos >= dirtyRange.start);
+      _lineTextCache.removeWhere((line, _) => line >= invalidateFromLine);
+      _indentGuideCache.removeWhere((line, _) => line >= invalidateFromLine);
       _indentEndLineCache.clear();
       _diagnosticPathCache.clear();
       _searchHighlightCache.clear();
-      _lineOffsetCache.clear();
       _caretInfoCache.clear();
-      _lineIndentCache.clear();
+      _lineIndentCache.removeWhere((line, _) => line >= invalidateFromLine);
     }
 
     final newLineCount = controller.lineCount;
@@ -5160,9 +5282,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
     } else if (affectedLine != null) {
       _foldRanges.remove(affectedLine);
-      if (affectedLine > 0) {
-        _foldRanges.remove(affectedLine - 1);
-      }
       _foldedLineCacheDirty = true;
 
       final newLineWidth = _getLineWidth(affectedLine);
@@ -5291,8 +5410,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   void _rebuildLayoutMap() {
     _layoutMap.clear();
     final lineCount = controller.lineCount;
-    // Precompute folded line set from controller.foldings so initial map
-    // reflects current fold state and uses zero height for folded children.
     final Set<int> foldedLines = {};
     for (final f in controller.foldings.values) {
       if (f != null && f.isFolded) {
@@ -5688,8 +5805,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       targetOffset: pos,
     );
 
-    final matchInt = match;
-    final result = matchInt == -1 ? null : matchInt;
+    final result = match == -1 ? null : match;
 
     _bracketCache[pos] = result;
     return result;
@@ -5759,14 +5875,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   }
 
   (int?, int?) _getBracketPairAtCursor() {
+    if (_suspendBracketHighlight) return (null, null);
+
     final cursorOffset = controller.selection.extentOffset;
     final textLength = controller.length;
+    const bracketChars = '{}[]()';
+    const openingBracketChars = '{[(';
 
     if (cursorOffset < 0 || textLength == 0) return (null, null);
 
     if (cursorOffset > 0 && cursorOffset <= textLength) {
       final before = controller.rope.substring(cursorOffset - 1, cursorOffset);
-      if ('{}[]()'.contains(before)) {
+      if (bracketChars.contains(before)) {
         final match = _findMatchingBracket(cursorOffset - 1);
         if (match != null) {
           return (cursorOffset - 1, match);
@@ -5776,7 +5896,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     if (cursorOffset >= 0 && cursorOffset < textLength) {
       final after = controller.rope.substring(cursorOffset, cursorOffset + 1);
-      if ('{}[]()'.contains(after)) {
+      if (openingBracketChars.contains(after)) {
         final match = _findMatchingBracket(cursorOffset);
         if (match != null) {
           return (cursorOffset, match);
@@ -6228,6 +6348,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   void detach() {
+    _bracketHighlightResumeTimer?.cancel();
     _resizeTimer?.cancel();
     _layoutDebounceTimer?.cancel();
     _foldComputeTimer?.cancel();
@@ -6539,7 +6660,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         firstVisibleLine = frame.firstLine;
         lastVisibleLine = frame.lastLine;
         firstVisibleLineY = frame.firstLineY;
-        // Prefill approximate line heights from native frame to avoid per-line length queries in Dart
         for (int i = 0; i < frame.lines.length; i++) {
           final lineIndex = frame.firstLine + i;
           _lineHeightCache[lineIndex] = frame.lines[i].height;
@@ -6606,6 +6726,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     _pruneViewportCaches(firstVisibleLine, lastVisibleLine);
+    _scheduleVisibleSemanticTokens(firstVisibleLine, lastVisibleLine);
 
     _drawSearchHighlights(
       canvas,
@@ -7631,7 +7752,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       required int indentLevel,
       required String lineText,
     }) {
-      if (endLine <= startLine + 1) return;
+      if (endLine <= startLine) return;
 
       final cachedBlocks = _indentGuideCache[startLine];
       if (cachedBlocks != null && cachedBlocks.isNotEmpty) {
@@ -7639,9 +7760,12 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         return;
       }
 
-      final renderEndLine = _shouldShortenGuideToPreviousLine(lineText)
-          ? (endLine - 1).clamp(startLine + 1, endLine)
-          : endLine;
+      final renderEndLine = max(
+        _shouldShortenGuideToPreviousLine(lineText)
+            ? (endLine - 1).clamp(startLine + 1, endLine)
+            : endLine,
+        startLine + 2,
+      );
 
       double guideX = 0;
       if (leadingColumns > 0) {
@@ -7856,6 +7980,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     bool hasActiveFolds,
     Color textColor,
   ) {
+    if (!controller.selection.isValid || !controller.selection.isCollapsed) {
+      return;
+    }
+
+    if (_suspendBracketHighlight) {
+      return;
+    }
+
+    if (controller.dirtyRegion != null) {
+      return;
+    }
+
     final (bracket1, bracket2) = _getBracketPairAtCursor();
     if (bracket1 == null || bracket2 == null) return;
 

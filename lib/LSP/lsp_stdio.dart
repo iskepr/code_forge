@@ -70,7 +70,7 @@ class LspStdioConfig extends LspConfig {
 
   late Process _process;
   final _buffer = <int>[];
-  bool _isSending = false;
+  Future<void> _sendTail = Future<void>.value();
 
   LspStdioConfig._({
     required this.executable,
@@ -178,12 +178,15 @@ class LspStdioConfig extends LspConfig {
       'method': method,
       'params': params,
     };
-    await _sendLspMessage(request);
 
-    return await _responseController.stream.firstWhere(
+    final responseFuture = _responseController.stream.firstWhere(
       (response) => response['id'] == id,
       orElse: () => throw TimeoutException('No response for request $id'),
     );
+
+    await _sendLspMessage(request);
+
+    return await responseFuture;
   }
 
   @override
@@ -210,31 +213,23 @@ class LspStdioConfig extends LspConfig {
 
   Future<void> _sendLspMessage(Map<String, dynamic> message) async {
     final completer = Completer<void>();
-    Future<void> sendOperation() async {
+    _sendTail = _sendTail.catchError((_) {}).then((_) async {
       try {
         final body = utf8.encode(jsonEncode(message));
         final header = utf8.encode('Content-Length: ${body.length}\r\n\r\n');
         final combined = <int>[...header, ...body];
         _process.stdin.add(combined);
         await _process.stdin.flush();
-        completer.complete();
-      } catch (e) {
-        completer.completeError(e);
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      } catch (e, st) {
+        if (!completer.isCompleted) {
+          completer.completeError(e, st);
+        }
+      } finally {
       }
-    }
-
-    if (!_isSending) {
-      _isSending = true;
-      await sendOperation();
-      _isSending = false;
-    } else {
-      while (_isSending) {
-        await Future.delayed(const Duration(microseconds: 100));
-      }
-      _isSending = true;
-      await sendOperation();
-      _isSending = false;
-    }
+    });
 
     return completer.future;
   }
