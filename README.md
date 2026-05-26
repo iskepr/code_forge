@@ -40,10 +40,18 @@
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
 
-## Upcoming feature (v10.0.0):
+<details>
+
+<summary> <h2> Upcoming feature (v10.0.0): </h2> </summary>
+
 **Currently I'm working on the migration of code_forge backend from dart to rust, while keeping the front end flutter APIs untouched.
 This will make the code_forge lightning fast like the [zed editor](https://zed.dev/).**
+You can track the current development in the [dev](https://github.com/heckmon/code_forge/tree/dev) branch.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/1M.gif" alt="CodeForge Demo" width="800"/><sub><br>Smooth editing in 1M+ lines of code, tested on a low end PC with pentium dual core CPU and no dedicated graphics card.</sub>
+</p>
+</details>
 
 ### What's new in 9.10.0
   - FEATURE: Added `tabSize` to customize tab spaces in the Controller.
