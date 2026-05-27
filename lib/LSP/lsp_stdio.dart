@@ -284,8 +284,7 @@ class LspStdioConfig extends LspConfig {
         if (!completer.isCompleted) {
           completer.completeError(e, st);
         }
-      } finally {
-      }
+      } finally {}
     });
 
     return completer.future;

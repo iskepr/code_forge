@@ -393,3 +393,19 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - FIX: [#61](https://github.com/heckmon/code_forge/issues/61)
   - FIX: [#65](https://github.com/heckmon/code_forge/issues/65)
   - FIX: [#62](https://github.com/heckmon/code_forge/issues/62)
+
+## 10.0.0
+  - ### Migrated the backend from dart to rust:
+      - Uses [ropey](https://crates.io/crates/ropey) crate for text storage.
+      - Introduced [SumTree](https://zed.dev/blog/zed-decoded-rope-sumtree) data structure to store line details using the [zed-sum-tree](https://crates.io/crates/zed-sum-tree) crate, used by the [Zed editor](https://zed.dev/).
+      - Bidi support has been enhanced using the [unicode-bidi](https://crates.io/crates/unicode-bidi?utm_source=chatgpt.com) crate for RTL languages.
+      - Bracket pair calculation, fold range calculation, etc has been moved to rust side.
+  - FEATURE: Line number index in scrollbar.
+  - FEATURE: New `ScrollbarDecoration` API to customize the scroll bar.
+  - FEATURE: Code action bulb icon now shows on the line start.
+  - API CHANGE: `enableSuggestions` has been changed to `enableLocalSuggestions` and default value is false. This API cannot be used to disable LSP suggestions. Use `capabilities` field in the `LspConfig` instead.
+  - FIX: [#72](https://github.com/heckmon/code_forge/issues/72)
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/heckmon/code_forge/refs/heads/main/gifs/1M.gif" alt="CodeForge Demo" width="800"/><sub><br>Smooth editing in 1M+ lines of code, tested on a low end PC with pentium dual core CPU and no dedicated graphics card.</sub>
+  </p>
+

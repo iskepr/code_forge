@@ -100,8 +100,7 @@ class Render2DCodeField extends RenderTwoDimensionalViewport {
   }
 }
 
-class CustomScrollbar extends RawScrollbar{
-
+class CustomScrollbar extends RawScrollbar {
   final TextStyle lineNumberStyle;
   final bool showLineNumberIndicator;
   final ValueNotifier<int> lineNumberNotifier;
@@ -134,16 +133,14 @@ class CustomScrollbar extends RawScrollbar{
     super.padding,
     super.pressDuration,
     super.trackColor,
-    super.notificationPredicate
+    super.notificationPredicate,
   });
 
   @override
   RawScrollbarState<RawScrollbar> createState() => _CustomScrollbarState();
-  
 }
 
-class _CustomScrollbarState extends RawScrollbarState<CustomScrollbar>{
-
+class _CustomScrollbarState extends RawScrollbarState<CustomScrollbar> {
   bool _isDragging = false;
   @override
   void initState() {
@@ -178,24 +175,23 @@ class _CustomScrollbarState extends RawScrollbarState<CustomScrollbar>{
   @override
   void updateScrollbarPainter() {
     scrollbarPainter
-    ..color = widget.thumbColor ?? Colors.grey.withAlpha(100)
-    ..textDirection = Directionality.of(context)
-    ..thickness = widget.thickness ?? 8.0
-    ..shape = _CustomThumbBorder(
-      isDragging: _isDragging,
-      showLineNumberIndicator: widget.showLineNumberIndicator,
-      color: widget.thumbColor ?? Colors.grey.withAlpha(100),
-      lineNumber: widget.lineNumberNotifier.value,
-      lineNumberStyle: widget.lineNumberStyle,
-      borderRadius: widget.borderRadius,
-      textDirection: widget.textDirection,
-      thickness: widget.thickness ?? 15
-    );
+      ..color = widget.thumbColor ?? Colors.grey.withAlpha(100)
+      ..textDirection = Directionality.of(context)
+      ..thickness = widget.thickness ?? 8.0
+      ..shape = _CustomThumbBorder(
+        isDragging: _isDragging,
+        showLineNumberIndicator: widget.showLineNumberIndicator,
+        color: widget.thumbColor ?? Colors.grey.withAlpha(100),
+        lineNumber: widget.lineNumberNotifier.value,
+        lineNumberStyle: widget.lineNumberStyle,
+        borderRadius: widget.borderRadius,
+        textDirection: widget.textDirection,
+        thickness: widget.thickness ?? 15,
+      );
   }
 }
 
 class _CustomThumbBorder extends RoundedRectangleBorder {
-
   final bool isDragging, showLineNumberIndicator;
   final Color color;
   final int lineNumber;
@@ -213,33 +209,31 @@ class _CustomThumbBorder extends RoundedRectangleBorder {
     required this.showLineNumberIndicator,
     required this.textDirection,
     required this.thickness,
-    required super.borderRadius
+    required super.borderRadius,
   }) : super(side: BorderSide.none) {
-    _lineNumberPainter = TextPainter(
-      text: TextSpan(
-        text: lineNumber.toString(),
-        style: lineNumberStyle
-      )
-    ) ..textDirection = textDirection
-      .. layout();
+    _lineNumberPainter =
+        TextPainter(
+            text: TextSpan(text: lineNumber.toString(), style: lineNumberStyle),
+          )
+          ..textDirection = textDirection
+          ..layout();
   }
 
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
-    if(!showLineNumberIndicator) return;
+    if (!showLineNumberIndicator) return;
 
     final double w = max(_lineNumberPainter.width + 10, 100);
-    final double h =  max(_lineNumberPainter.height + 3, 30);
+    final double h = max(_lineNumberPainter.height + 3, 30);
 
-    final paint = Paint()
-    ..color = color;
+    final paint = Paint()..color = color;
 
-    if(isDragging) {
+    if (isDragging) {
       final isLtr = this.textDirection == TextDirection.ltr;
       final bubbleRect = Rect.fromLTWH(
         isLtr
-          ? rect.center.dx - (105 + thickness)
-          : rect.center.dx + thickness + 10,
+            ? rect.center.dx - (105 + thickness)
+            : rect.center.dx + thickness + 10,
         rect.center.dy - 15,
         w,
         h,
@@ -255,9 +249,8 @@ class _CustomThumbBorder extends RoundedRectangleBorder {
         Offset(
           bubbleRect.left + (bubbleRect.width - _lineNumberPainter.width) / 2,
           bubbleRect.top + (bubbleRect.height - _lineNumberPainter.height) / 2,
-        )
+        ),
       );
-
     }
   }
 

@@ -710,9 +710,7 @@ class SyntaxHighlighter {
     final maxKeep = endLine + _cacheKeepMargin;
 
     if (_grammarCache.length > _maxLineCacheEntries) {
-      _grammarCache.removeWhere(
-        (line, _) => line < minKeep || line > maxKeep,
-      );
+      _grammarCache.removeWhere((line, _) => line < minKeep || line > maxKeep);
     }
 
     if (_mergedCache.length > _maxLineCacheEntries) {

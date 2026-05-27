@@ -420,16 +420,18 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       _controller.useSpaceAsTab = widget.useSpaceAsTab;
     }
 
-    _scrollbarDecoration = widget.scrollbarDecoration ?? ScrollbarDecoration(
-      thumbColor: _editorTheme['root']?.color?.withAlpha(150),
-      thickness: 15,
-      lineNumberStyle: TextStyle(
-        color: _editorTheme['root']?.backgroundColor ?? Colors.black,
-        fontSize: widget.textStyle?.fontSize ?? 14,
-        fontFamily: widget.textStyle?.fontFamily,
-        fontWeight: widget.textStyle?.fontWeight ?? FontWeight.bold
-      )
-    );
+    _scrollbarDecoration =
+        widget.scrollbarDecoration ??
+        ScrollbarDecoration(
+          thumbColor: _editorTheme['root']?.color?.withAlpha(150),
+          thickness: 15,
+          lineNumberStyle: TextStyle(
+            color: _editorTheme['root']?.backgroundColor ?? Colors.black,
+            fontSize: widget.textStyle?.fontSize ?? 14,
+            fontFamily: widget.textStyle?.fontFamily,
+            fontWeight: widget.textStyle?.fontWeight ?? FontWeight.bold,
+          ),
+        );
 
     _gutterStyle =
         widget.gutterStyle ??
@@ -642,8 +644,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
 
     _controller.addListener(_controllerListener);
 
-  _scrollbarLineNumberListener = _updateScrollbarLineNumberIndicator;
-  _vscrollController.addListener(_scrollbarLineNumberListener);
+    _scrollbarLineNumberListener = _updateScrollbarLineNumberIndicator;
+    _vscrollController.addListener(_scrollbarLineNumberListener);
 
     _hoverListener = () {
       final hov = _hoverNotifier.value;
@@ -1520,33 +1522,38 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                       lineNumberNotifier: _scrollbarLineNumberIndicator,
                       textDirection: widget.textDirection,
                       borderRadius: _scrollbarDecoration.borderRadius,
-                      showLineNumberIndicator: _scrollbarDecoration.showLineNumberIndicator,
+                      showLineNumberIndicator:
+                          _scrollbarDecoration.showLineNumberIndicator,
                       thickness: _scrollbarDecoration.thickness,
                       thumbColor: _scrollbarDecoration.thumbColor,
                       interactive: _scrollbarDecoration.interactive,
                       crossAxisMargin: _scrollbarDecoration.crossAxisMargin,
                       mainAxisMargin: _scrollbarDecoration.mainAxisMargin,
-                      scrollbarOrientation: _scrollbarDecoration.scrollbarOrientation,
+                      scrollbarOrientation:
+                          _scrollbarDecoration.scrollbarOrientation,
                       trackBorderColor: _scrollbarDecoration.trackBorderColor,
                       fadeDuration: _scrollbarDecoration.fadeDuration,
                       timeToFade: _scrollbarDecoration.timeToFade,
                       trackRadius: _scrollbarDecoration.trackRadius,
                       trackVisibility: _scrollbarDecoration.trackVisibility,
-                      minOverscrollLength: _scrollbarDecoration.minOverscrollLength,
+                      minOverscrollLength:
+                          _scrollbarDecoration.minOverscrollLength,
                       minThumbLength: _scrollbarDecoration.minThumbLength,
                       padding: _scrollbarDecoration.padding,
                       pressDuration: _scrollbarDecoration.pressDuration,
                       trackColor: _scrollbarDecoration.trackColor,
-                      notificationPredicate: _scrollbarDecoration.notificationPredicate,
+                      notificationPredicate:
+                          _scrollbarDecoration.notificationPredicate,
                       thumbVisibility: _isHovering,
                       lineNumberStyle:
-                        _scrollbarDecoration.lineNumberStyle
-                        ?? TextStyle(
-                            color: _editorTheme['root']?.backgroundColor
-                                  ?? Colors.black,
+                          _scrollbarDecoration.lineNumberStyle ??
+                          TextStyle(
+                            color:
+                                _editorTheme['root']?.backgroundColor ??
+                                Colors.black,
                             fontSize: widget.textStyle?.fontSize ?? 14,
-                            fontFamily: widget.textStyle?.fontFamily
-                        ),
+                            fontFamily: widget.textStyle?.fontFamily,
+                          ),
                       child: Transform(
                         alignment: Alignment.center,
                         transform: widget.textDirection == TextDirection.rtl
@@ -4307,7 +4314,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
   }
 
-  void _scheduleVisibleSemanticTokens(int firstVisibleLine, int lastVisibleLine) {
+  void _scheduleVisibleSemanticTokens(
+    int firstVisibleLine,
+    int lastVisibleLine,
+  ) {
     final config = lspConfig;
     final currentFile = filePath;
     if (config == null || currentFile == null) return;
@@ -4318,11 +4328,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final currentVersion = controller.documentVersion;
     final buffer = kSemanticTokenViewportPaddingLines;
     final startLine = (firstVisibleLine - buffer)
-      .clamp(0, controller.lineCount - 1)
-      .toInt();
+        .clamp(0, controller.lineCount - 1)
+        .toInt();
     final endLine = (lastVisibleLine + buffer)
-      .clamp(0, controller.lineCount - 1)
-      .toInt();
+        .clamp(0, controller.lineCount - 1)
+        .toInt();
 
     if (_lastSemanticTokenRequestVersion == currentVersion &&
         _lastSemanticTokenRequestStartLine == startLine &&
@@ -6400,10 +6410,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       return 1;
     }
 
-    final lineIndex = _findVisibleLineByYPosition(scrollOffset).clamp(
-      0,
-      controller.lineCount - 1,
-    );
+    final lineIndex = _findVisibleLineByYPosition(
+      scrollOffset,
+    ).clamp(0, controller.lineCount - 1);
     return lineIndex + 1;
   }
 

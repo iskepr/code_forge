@@ -5,8 +5,7 @@ import 'package:re_highlight/re_highlight.dart';
 
 /// This class provides both styling and functionality configuration for the scrollbar used in the [CodeForge].
 /// Only vertical scrollbar can be tweaked using this class.
-class ScrollbarDecoration{
-
+class ScrollbarDecoration {
   /// Whether to show the current line number near the scrollbar.
   /// Defaults to true
   final bool showLineNumberIndicator;
@@ -262,14 +261,14 @@ class ScrollbarDecoration{
     this.trackColor,
     this.trackBorderColor,
     this.fadeDuration = const Duration(milliseconds: 300),
-    this.timeToFade =  const Duration(milliseconds: 600),
+    this.timeToFade = const Duration(milliseconds: 600),
     this.pressDuration = Duration.zero,
     this.notificationPredicate = defaultScrollNotificationPredicate,
     this.interactive,
     this.scrollbarOrientation,
     this.mainAxisMargin = 0.0,
     this.crossAxisMargin = 0.0,
-    this.padding
+    this.padding,
   });
 }
 

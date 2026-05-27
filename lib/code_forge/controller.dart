@@ -232,7 +232,7 @@ class CodeForgeController implements DeltaTextInputClient {
       });
     } else {
       _listeners.add(() async {
-        if(!enableLocalSuggestions) return;
+        if (!enableLocalSuggestions) return;
         _debounceTimer?.cancel();
         _debounceTimer = Timer(const Duration(milliseconds: 200), () async {
           if (text != _previousValue) {
@@ -862,7 +862,8 @@ class CodeForgeController implements DeltaTextInputClient {
       offsets.add(_multiCursorToOffset(c).clamp(0, _rope.length));
     }
 
-        final uniqueOffsets = offsets.toSet().toList()..sort((a, b) => a.compareTo(b));
+    final uniqueOffsets = offsets.toSet().toList()
+      ..sort((a, b) => a.compareTo(b));
 
     final compound = _undoController?.beginCompoundOperation();
 
@@ -941,7 +942,8 @@ class CodeForgeController implements DeltaTextInputClient {
       offsets.add(_multiCursorToOffset(c).clamp(0, _rope.length));
     }
 
-        final uniqueOffsets = offsets.toSet().toList()..sort((a, b) => a.compareTo(b));
+    final uniqueOffsets = offsets.toSet().toList()
+      ..sort((a, b) => a.compareTo(b));
 
     final compound = _undoController?.beginCompoundOperation();
 
@@ -1644,7 +1646,7 @@ class CodeForgeController implements DeltaTextInputClient {
       );
     }
     final file = File(openedFile!);
-    if(!file.existsSync()){
+    if (!file.existsSync()) {
       throw FlutterError(
         "No file found.\nPlease open a file by providing a valid filePath to the CodeForge widget",
       );
@@ -2355,11 +2357,12 @@ class CodeForgeController implements DeltaTextInputClient {
         final mappedInsertionOffset = _localImeOffsetToGlobal(
           delta.insertionOffset,
         );
-        final staleMappedOffset = mappedInsertionOffset < _selection.extentOffset;
+        final staleMappedOffset =
+            mappedInsertionOffset < _selection.extentOffset;
         bool useCurrentSelection =
-          _imeSelectionNeedsResync ||
-          delta.insertionOffset != _imeProjectionSelection.extentOffset ||
-          staleMappedOffset;
+            _imeSelectionNeedsResync ||
+            delta.insertionOffset != _imeProjectionSelection.extentOffset ||
+            staleMappedOffset;
         if (isBufferActive) useCurrentSelection = true;
         _imeSelectionNeedsResync = false;
 
@@ -2386,7 +2389,7 @@ class CodeForgeController implements DeltaTextInputClient {
         }
         final insertionOffset = useCurrentSelection
             ? _selection.extentOffset
-          : mappedInsertionOffset;
+            : mappedInsertionOffset;
         final insertionSelection = useCurrentSelection
             ? TextSelection.collapsed(
                 offset: insertionOffset + delta.textInserted.length,
@@ -2400,7 +2403,6 @@ class CodeForgeController implements DeltaTextInputClient {
           delta.textInserted,
           insertionSelection,
         );
-        
       } else if (delta is TextEditingDeltaDeletion) {
         _handleDeletion(
           TextRange(
@@ -2440,7 +2442,6 @@ class CodeForgeController implements DeltaTextInputClient {
     if (!isBufferActive) return 0;
     return _selection.extentOffset - _bufferLineRopeStart;
   }
-
 
   /// Insert text at the current cursor position (or replace selection).
   void insertAtCurrentCursor(
@@ -2518,10 +2519,7 @@ class CodeForgeController implements DeltaTextInputClient {
     final safeOffset = offset.clamp(0, _rope.length);
     final line = getLineAtOffset(safeOffset);
     final lineStart = getLineStartOffset(line);
-    return {
-      'line': line,
-      'character': safeOffset - lineStart,
-    };
+    return {'line': line, 'character': safeOffset - lineStart};
   }
 
   Map<String, dynamic> _lspRangeForOffsets(int start, int end) {
@@ -2584,11 +2582,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
     if (changes.isEmpty) return;
 
-    await config.updateDocument(
-      file,
-      text,
-      contentChanges: changes,
-    );
+    await config.updateDocument(file, text, contentChanges: changes);
   }
 
   void _ensureImeProjection() {
@@ -2633,11 +2627,16 @@ class CodeForgeController implements DeltaTextInputClient {
         projectionStartOffset = selectionStart;
       }
       final selectionTail = selectionEnd + halfWindow;
-      final projectionEndOffset = (projectionStartOffset + _imeProjectionMaxChars)
-          .clamp(0, documentLength);
+      final projectionEndOffset =
+          (projectionStartOffset + _imeProjectionMaxChars).clamp(
+            0,
+            documentLength,
+          );
       if (selectionTail > projectionEndOffset) {
-        projectionStartOffset = (selectionTail - _imeProjectionMaxChars)
-            .clamp(0, documentLength);
+        projectionStartOffset = (selectionTail - _imeProjectionMaxChars).clamp(
+          0,
+          documentLength,
+        );
       }
       final projectionEnd = (projectionStartOffset + _imeProjectionMaxChars)
           .clamp(0, documentLength);
@@ -2660,12 +2659,14 @@ class CodeForgeController implements DeltaTextInputClient {
       extentOffset: localExtent,
     );
     _imeProjectionDirty = false;
-
   }
 
   int _localImeOffsetToGlobal(int localOffset) {
     _ensureImeProjection();
-    final result = (_imeProjectionStartOffset + localOffset).clamp(0, _rope.length);
+    final result = (_imeProjectionStartOffset + localOffset).clamp(
+      0,
+      _rope.length,
+    );
     return result;
   }
 
@@ -2854,7 +2855,7 @@ class CodeForgeController implements DeltaTextInputClient {
       dirtyLine = lineIndex;
 
       bufferNeedsRepaint = true;
-        dirtyRegion = TextRange(start: deleteOffset, end: deleteOffset);
+      dirtyRegion = TextRange(start: deleteOffset, end: deleteOffset);
 
       _recordDeletion(deleteOffset, deletedText, selectionBefore, _selection);
       _imeSelectionNeedsResync = true;
@@ -3154,7 +3155,8 @@ class CodeForgeController implements DeltaTextInputClient {
           ? currentText.length
           : nextText.length;
       while (prefixLength < maxPrefix &&
-          currentText.codeUnitAt(prefixLength) == nextText.codeUnitAt(prefixLength)) {
+          currentText.codeUnitAt(prefixLength) ==
+              nextText.codeUnitAt(prefixLength)) {
         prefixLength++;
       }
 
@@ -3237,8 +3239,9 @@ class CodeForgeController implements DeltaTextInputClient {
     _flushBuffer();
     final safeStart = start.clamp(0, _rope.length);
     final safeEnd = end.clamp(safeStart, _rope.length);
-    final deletedText =
-        safeStart < safeEnd ? _rope.substring(safeStart, safeEnd) : '';
+    final deletedText = safeStart < safeEnd
+        ? _rope.substring(safeStart, safeEnd)
+        : '';
     final supportsPullSemanticSync =
         lspConfig?.supportsSemanticTokensPull ?? true;
 
@@ -3263,7 +3266,10 @@ class CodeForgeController implements DeltaTextInputClient {
       );
       _selection = newSelection;
       dirtyLine = _rope.getLineAtOffset(safeStart);
-      dirtyRegion = TextRange(start: safeStart, end: safeStart + replacement.length);
+      dirtyRegion = TextRange(
+        start: safeStart,
+        end: safeStart + replacement.length,
+      );
 
       if (deletedText.isNotEmpty && replacement.isNotEmpty) {
         _recordReplacement(

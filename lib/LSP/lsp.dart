@@ -156,7 +156,7 @@ sealed class LspConfig {
     if (semanticTokensProvider != null) {
       final rangeSupport = semanticTokensProvider['range'];
       _serverSupportsSemanticTokensRange =
-        rangeSupport == true || rangeSupport is Map;
+          rangeSupport == true || rangeSupport is Map;
       final fullSupport = semanticTokensProvider['full'];
       _serverSupportsSemanticTokensFull =
           fullSupport == true || fullSupport is Map;
@@ -243,7 +243,7 @@ sealed class LspConfig {
       'didSave': true,
       'change': forceFullDocumentSync ? 1 : 2,
     };
-    
+
     textDocumentCapabilities['publishDiagnostics'] = {
       'relatedInformation': true,
     };
@@ -1067,10 +1067,7 @@ sealed class LspConfig {
       params: {
         'textDocument': {'uri': Uri.file(filePath).toString()},
         'range': {
-          'start': {
-            'line': startLine,
-            'character': startCharacter,
-          },
+          'start': {'line': startLine, 'character': startCharacter},
           'end': {'line': endLine, 'character': endCharacter},
         },
       },

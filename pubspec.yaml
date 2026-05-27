@@ -1,6 +1,6 @@
 name: code_forge
-description: "A sophisticated code editor package with AI completion, LSP support, syntax highlighting, and advanced editing capabilities."
-version: 9.10.0
+description: "A sophisticated code editor package for flutter backed by rust backend."
+version: 10.0.0
 homepage: https://github.com/heckmon/code_forge
 
 environment:
