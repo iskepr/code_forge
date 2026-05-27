@@ -51,6 +51,7 @@ class FindController extends ChangeNotifier {
   }
 
   void _onCodeControllerChanged() {
+    if (!_isActive && _lastQuery.isEmpty) return;
     final currentText = _codeController.text;
     if (currentText != _lastText) {
       _lastText = currentText;

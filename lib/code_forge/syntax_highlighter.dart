@@ -47,14 +47,16 @@ class SyntaxHighlighter {
   late final Map<String, TextStyle> _resolvedTheme;
   late final List<Mode> _registeredExtraLanguages;
   late final Map<String, List<String>> _semanticMapping;
-  final Map<int, HighlightedLine> _grammarCache = {};
-  final Map<int, HighlightedLine> _mergedCache = {};
+  final Map<int, HighlightedLine> _grammarCache = {}, _mergedCache = {};
   final Map<int, List<SemanticWordSpan>> _lineSemanticSpans = {};
   final Map<String, TextSpan?> _lineSpanCache = {};
   bool _isEditing = false;
   int _version = 0;
   int _documentVersion = 0;
   static const int isolateThreshold = 500;
+  static const int _cacheKeepMargin = 500;
+  static const int _maxLineCacheEntries = 6000;
+  static const int _maxSpanCacheEntries = 8000;
   int get documentVersion => _documentVersion;
 
   SyntaxHighlighter({
@@ -78,40 +80,50 @@ class SyntaxHighlighter {
     _semanticMapping = getSemanticMapping(languageId ?? '');
   }
 
-  void updateSemanticTokens(List<LspSemanticToken> tokens, String fullText) {
-    _lineSemanticSpans.clear();
-    final lines = fullText.split('\n');
+  void updateSemanticTokens(
+    List<LspSemanticToken> tokens,
+    String Function(int) getLineText,
+    int lineCount,
+  ) {
+    final updatedLineSemanticSpans = <int, List<SemanticWordSpan>>{};
+    final lineCache = <int, String>{};
 
     for (final token in tokens) {
-      if (token.line < lines.length) {
-        final lineText = lines[token.line];
-        final start = token.start.clamp(0, lineText.length);
-        final end = (token.start + token.length).clamp(0, lineText.length);
+      if (token.line < 0 || token.line >= lineCount) continue;
+      final lineText = lineCache.putIfAbsent(
+        token.line,
+        () => getLineText(token.line),
+      );
+      final start = token.start.clamp(0, lineText.length);
+      final end = (token.start + token.length).clamp(0, lineText.length);
 
-        if (start < end) {
-          final word = lineText.substring(start, end);
-          final style = _resolveSemanticStyle(token.tokenTypeName);
+      if (start < end) {
+        final word = lineText.substring(start, end);
+        final style = _resolveSemanticStyle(token.tokenTypeName);
 
-          if (style != null && word.isNotEmpty) {
-            final lineSpans = _lineSemanticSpans.putIfAbsent(
-              token.line,
-              () => [],
-            );
-            lineSpans.add(
-              SemanticWordSpan(
-                startChar: start,
-                endChar: end,
-                word: word,
-                style: style,
-              ),
-            );
-          }
+        if (style != null && word.isNotEmpty) {
+          final lineSpans = updatedLineSemanticSpans.putIfAbsent(
+            token.line,
+            () => [],
+          );
+          lineSpans.add(
+            SemanticWordSpan(
+              startChar: start,
+              endChar: end,
+              word: word,
+              style: style,
+            ),
+          );
         }
       }
     }
 
-    for (final spans in _lineSemanticSpans.values) {
+    for (final spans in updatedLineSemanticSpans.values) {
       spans.sort((a, b) => a.startChar.compareTo(b.startChar));
+    }
+
+    for (final entry in updatedLineSemanticSpans.entries) {
+      _lineSemanticSpans[entry.key] = entry.value;
     }
 
     _isEditing = false;
@@ -122,13 +134,41 @@ class SyntaxHighlighter {
   }
 
   void applyDocumentEdit(
+    int editLine,
     int editStart,
     int oldEnd,
     String insertedText,
+    String deletedText,
     String fullText,
   ) {
     _documentVersion++;
-    _isEditing = true;
+    final insertedLineBreaks = '\n'.allMatches(insertedText).length;
+    final deletedLineBreaks = '\n'.allMatches(deletedText).length;
+    final lineBreakDelta = insertedLineBreaks - deletedLineBreaks;
+    final isPureInsertion = oldEnd == editStart;
+    final isPureDeletion = insertedText.isEmpty && oldEnd > editStart;
+    if (lineBreakDelta != 0 && (isPureInsertion || isPureDeletion)) {
+      final shiftedSemanticSpans = <int, List<SemanticWordSpan>>{};
+      for (final entry in _lineSemanticSpans.entries) {
+        final lineIndex = entry.key;
+        if (lineIndex > editLine) {
+          shiftedSemanticSpans[lineIndex + lineBreakDelta] = entry.value;
+        } else {
+          shiftedSemanticSpans[lineIndex] = entry.value;
+        }
+      }
+
+      _lineSemanticSpans
+        ..clear()
+        ..addAll(shiftedSemanticSpans);
+      _grammarCache.removeWhere((line, _) => line >= editLine);
+      _mergedCache.removeWhere((line, _) => line >= editLine);
+      _isEditing = false;
+    } else {
+      _isEditing = true;
+    }
+
+    _lineSpanCache.clear();
     _version++;
   }
 
@@ -616,6 +656,8 @@ class SyntaxHighlighter {
     int endLine,
     String Function(int) getLineText,
   ) async {
+    _pruneCachesForViewport(startLine, endLine);
+
     final linesToProcess = <int, String>{};
 
     for (int i = startLine; i <= endLine; i++) {
@@ -658,6 +700,31 @@ class SyntaxHighlighter {
         textSpan,
         _version,
       );
+    }
+
+    _pruneCachesForViewport(startLine, endLine);
+  }
+
+  void _pruneCachesForViewport(int startLine, int endLine) {
+    final minKeep = (startLine - _cacheKeepMargin).clamp(0, 1 << 30);
+    final maxKeep = endLine + _cacheKeepMargin;
+
+    if (_grammarCache.length > _maxLineCacheEntries) {
+      _grammarCache.removeWhere((line, _) => line < minKeep || line > maxKeep);
+    }
+
+    if (_mergedCache.length > _maxLineCacheEntries) {
+      _mergedCache.removeWhere((line, _) => line < minKeep || line > maxKeep);
+    }
+
+    if (_lineSemanticSpans.length > _maxLineCacheEntries) {
+      _lineSemanticSpans.removeWhere(
+        (line, _) => line < minKeep || line > maxKeep,
+      );
+    }
+
+    if (_lineSpanCache.length > _maxSpanCacheEntries) {
+      _lineSpanCache.clear();
     }
   }
 

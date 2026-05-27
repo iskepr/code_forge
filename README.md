@@ -1,7 +1,7 @@
-<h1 align="center">⚒️ CodeForge</h1>
+<h1 align="center">CodeForge</h1>
 
 <p align="center">
-  <strong>A powerful, feature-rich code editor created using Flutter</strong>
+  <strong>A powerful, feature-rich code editor widget with backend written in rust</strong>
 </p>
 
 <p align="center">
@@ -53,13 +53,9 @@ You can track the current development in the [dev](https://github.com/heckmon/co
 </p>
 </details>
 
-### What's new in 9.10.0
-  - FEATURE: Added `tabSize` to customize tab spaces in the Controller.
-  - FIX: [#63](https://github.com/heckmon/code_forge/issues/63)
-  - FIX: [#61](https://github.com/heckmon/code_forge/issues/61)
-  - FIX: [#65](https://github.com/heckmon/code_forge/issues/65)
-  - FIX: [#62](https://github.com/heckmon/code_forge/issues/62)
-
+> [!NOTE]
+>
+> The debug build is **60%** slower than the profile and release builds because of the frequent FFI calls made by the editor to the rust backend, which is expensive in JIT mode. It doesn't affect the AOT mode used in profile and release. So debug builds can get extremely slow and laggy on large files.
 
 
 ## Why CodeForge?
@@ -130,11 +126,13 @@ To see working examples of all CodeForge features including AI Code Completion, 
 
 ## Installation
 
-Add CodeForge to your `pubspec.yaml`:
+- 1 . Make sure to install [rustup](https://rustup.rs/) and add it to the $PATH.
+
+- 2 . Add CodeForge to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  code_forge: ^9.10.0
+  code_forge: ^10.10.0
 ```
 
 Then run:
@@ -149,7 +147,7 @@ flutter pub get
 
 ### Basic Usage
 
-Import a theme and a language from the [re_highlight](https://pub.dev/packages/re_highlight) package and you are good to go. (Defaults to `langDart` and `vs2015Theme`):
+Import a theme and a language from the [re_highlight](https://pub.dev/packages/re_highlight) package and you are good to go. (Defaults to plain text and `lightFlairTheme`):
 
 ```dart
 import 'package:flutter/material.dart';
@@ -167,8 +165,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       home: Scaffold(
         body: CodeForge(
-          language: langPython, // Defaults to langDart
-          editorTheme: atomOneDarkTheme, // Defaults to vs2015Theme
+          language: langPython, // Defaults to Mode(), means plain text
+          editorTheme: atomOneDarkTheme, // Defaults to lightFlairTheme
         ),
       ),
     );
@@ -385,6 +383,7 @@ CodeForge(
   aiCompletionTextStyle: TextStyle(
     color: Colors.grey, // Change the color of the AI completion text
     fontStyle: FontStyle.italic, // Make the AI completion text italic
+    ...
   ),
   
   // Selection & cursor
@@ -392,6 +391,7 @@ CodeForge(
     cursorColor: Colors.white,
     selectionColor: Colors.blue.withOpacity(0.3),
     cursorBubbleColor: Colors.blue,
+    ...
   ),
   
   // Gutter (line numbers & fold icons)
@@ -403,6 +403,7 @@ CodeForge(
     unfoldedIconColor: Colors.grey,
     errorLineNumberColor: Colors.red,
     warningLineNumberColor: Colors.orange,
+    ...
   ),
   
   // Suggestion popup
@@ -410,12 +411,14 @@ CodeForge(
     backgroundColor: Color(0xFF252526),
     textStyle: TextStyle(color: Colors.white),
     elevation: 8,
+    ...
   ),
   
   // Hover documentation
   hoverDetailsStyle: HoverDetailsStyle(
     backgroundColor: Color(0xFF252526),
     textStyle: TextStyle(color: Colors.white),
+    ...
   ),
 
   // Highlight matching text using [controller.findWord()] and [controller.findRegex()]
@@ -426,7 +429,20 @@ CodeForge(
     otherMatchStyle: TextStyle(
       backgroundColor: Color(0x55FFFF00),
     ),
+    ...
   ),
+
+  scrollbarDecoration: const ScrollbarDecoration(
+    thumbColor: _editorTheme['root']?.color?.withAlpha(150),
+    thickness: 15,
+    lineNumberStyle: TextStyle(
+      color: _editorTheme['root']?.backgroundColor ?? Colors.black,
+      fontSize: widget.textStyle?.fontSize ?? 14,
+      fontFamily: widget.textStyle?.fontFamily,
+      fontWeight: widget.textStyle?.fontWeight ?? FontWeight.bold,
+    ),
+    ...
+  );
 )
 ```
 
@@ -439,7 +455,7 @@ CodeForge(
   enableGutter: true,         // Line numbers
   enableGuideLines: true,     // Indentation guides
   enableGutterDivider: false, // Gutter separator line
-  enableSuggestions: true,    // Autocomplete
+  enableLocalSuggestions: true,    // Enable or disable local word suggestions. False by default.
   enableKeyboardSuggestions: true // Suggestions from the OS keyboard
   
   // Behavior

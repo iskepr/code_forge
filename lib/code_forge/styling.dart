@@ -3,6 +3,275 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:re_highlight/re_highlight.dart';
 
+/// This class provides both styling and functionality configuration for the scrollbar used in the [CodeForge].
+/// Only vertical scrollbar can be tweaked using this class.
+class ScrollbarDecoration {
+  /// Whether to show the current line number near the scrollbar.
+  /// Defaults to true
+  final bool showLineNumberIndicator;
+
+  /// The [TextStyle] style apllied on the line number indicator.
+  /// Dosen't have any effect if [showLineNumberIndicator] set to false;
+  final TextStyle? lineNumberStyle;
+
+  /// {@template flutter.widgets.Scrollbar.thumbVisibility}
+  /// Indicates that the scrollbar thumb should be visible, even when a scroll
+  /// is not underway.
+  ///
+  /// When false, the scrollbar will be shown during scrolling
+  /// and will fade out otherwise.
+  ///
+  /// When true, the scrollbar will always be visible and never fade out. This
+  /// requires that the Scrollbar can access the [ScrollController] of the
+  /// associated Scrollable widget. This can either be the provided [controller],
+  /// or the [PrimaryScrollController] of the current context.
+  ///
+  ///   * When providing a controller, the same ScrollController must also be
+  ///     provided to the associated Scrollable widget.
+  ///   * The [PrimaryScrollController] is used by default for a [ScrollView]
+  ///     that has not been provided a [ScrollController] and that has a
+  ///     [ScrollView.scrollDirection] of [Axis.vertical]. This automatic
+  ///     behavior does not apply to those with [Axis.horizontal]. To explicitly
+  ///     use the PrimaryScrollController, set [ScrollView.primary] to true.
+  ///
+  /// Defaults to false when null.
+  ///
+  /// {@tool snippet}
+  ///
+  /// ```dart
+  /// // (e.g. in a stateful widget)
+  ///
+  /// final ScrollController controllerOne = ScrollController();
+  /// final ScrollController controllerTwo = ScrollController();
+  ///
+  /// @override
+  /// Widget build(BuildContext context) {
+  /// return Column(
+  ///   children: <Widget>[
+  ///     SizedBox(
+  ///        height: 200,
+  ///        child: Scrollbar(
+  ///          thumbVisibility: true,
+  ///          controller: controllerOne,
+  ///          child: ListView.builder(
+  ///            controller: controllerOne,
+  ///            itemCount: 120,
+  ///            itemBuilder: (BuildContext context, int index) {
+  ///              return Text('item $index');
+  ///            },
+  ///          ),
+  ///        ),
+  ///      ),
+  ///      SizedBox(
+  ///        height: 200,
+  ///        child: CupertinoScrollbar(
+  ///          thumbVisibility: true,
+  ///          controller: controllerTwo,
+  ///          child: SingleChildScrollView(
+  ///            controller: controllerTwo,
+  ///            child: const SizedBox(
+  ///              height: 2000,
+  ///              width: 500,
+  ///              child: Placeholder(),
+  ///            ),
+  ///          ),
+  ///        ),
+  ///      ),
+  ///    ],
+  ///   );
+  /// }
+  /// ```
+  /// {@end-tool}
+  ///
+  /// See also:
+  ///
+  ///   * [RawScrollbarState.showScrollbar], an overridable getter which uses
+  ///     this value to override the default behavior.
+  ///   * [ScrollView.primary], which indicates whether the ScrollView is the primary
+  ///     scroll view associated with the parent [PrimaryScrollController].
+  ///   * [PrimaryScrollController], which associates a [ScrollController] with
+  ///     a subtree.
+  /// {@endtemplate}
+  ///
+  /// Subclass [Scrollbar] can hide and show the scrollbar thumb in response to
+  /// [WidgetState]s by using [ScrollbarThemeData.thumbVisibility].
+  final bool? thumbVisibility;
+
+  /// The thickness of the scrollbar in the cross axis of the scrollable.
+  ///
+  /// If null, will default to 6.0 pixels.
+  final double? thickness;
+
+  /// The color of the scrollbar thumb.
+  ///
+  /// If null, defaults to Color(0x66BCBCBC).
+  final Color? thumbColor;
+
+  /// The preferred smallest size the scrollbar thumb can shrink to when the total
+  /// scrollable extent is large, the current visible viewport is small, and the
+  /// viewport is not overscrolled.
+  ///
+  /// The size of the scrollbar's thumb may shrink to a smaller size than [minThumbLength]
+  /// to fit in the available paint area (e.g., when [minThumbLength] is greater
+  /// than [ScrollMetrics.viewportDimension] and [mainAxisMargin] combined).
+  ///
+  /// Mustn't be null and the value has to be greater or equal to
+  /// [minOverscrollLength], which in turn is >= 0. Defaults to 18.0.
+  final double minThumbLength;
+
+  /// The preferred smallest size the scrollbar thumb can shrink to when viewport is
+  /// overscrolled.
+  ///
+  /// When overscrolling, the size of the scrollbar's thumb may shrink to a smaller size
+  /// than [minOverscrollLength] to fit in the available paint area (e.g., when
+  /// [minOverscrollLength] is greater than [ScrollMetrics.viewportDimension] and
+  /// [mainAxisMargin] combined).
+  ///
+  /// Overscrolling can be made possible by setting the `physics` property
+  /// of the `child` Widget to a `BouncingScrollPhysics`, which is a special
+  /// `ScrollPhysics` that allows overscrolling.
+  ///
+  /// The value is less than or equal to [minThumbLength] and greater than or equal to 0.
+  /// When null, it will default to the value of [minThumbLength].
+  final double? minOverscrollLength;
+
+  /// {@template flutter.widgets.Scrollbar.trackVisibility}
+  /// Indicates that the scrollbar track should be visible.
+  ///
+  /// When true, the scrollbar track will always be visible so long as the thumb
+  /// is visible. If the scrollbar thumb is not visible, the track will not be
+  /// visible either.
+  ///
+  /// Defaults to false when null.
+  /// {@endtemplate}
+  ///
+  /// Subclass [Scrollbar] can hide and show the scrollbar thumb in response to
+  /// [WidgetState]s by using [ScrollbarThemeData.trackVisibility].
+  final bool? trackVisibility;
+
+  /// The [Radius] of the scrollbar track's rounded rectangle corners.
+  ///
+  /// Scrollbar's track will be rectangular if [trackRadius] is null, which is
+  /// the default behavior.
+  final Radius? trackRadius;
+
+  /// The color of the scrollbar track.
+  ///
+  /// The scrollbar track will only be visible when [trackVisibility] and
+  /// [thumbVisibility] are true.
+  ///
+  /// If null, defaults to Color(0x08000000).
+  final Color? trackColor;
+
+  /// The color of the scrollbar track's border.
+  ///
+  /// The scrollbar track will only be visible when [trackVisibility] and
+  /// [thumbVisibility] are true.
+  ///
+  /// If null, defaults to Color(0x1a000000).
+  final Color? trackBorderColor;
+
+  /// The [Duration] of the fade animation.
+  ///
+  /// Defaults to a [Duration] of 300 milliseconds.
+  final Duration fadeDuration;
+
+  /// The [Duration] of time until the fade animation begins.
+  ///
+  /// Defaults to a [Duration] of 600 milliseconds.
+  final Duration timeToFade;
+
+  /// The [Duration] of time that a LongPress will trigger the drag gesture of
+  /// the scrollbar thumb.
+  ///
+  /// Defaults to [Duration.zero].
+  final Duration pressDuration;
+
+  /// {@template flutter.widgets.Scrollbar.notificationPredicate}
+  /// A check that specifies whether a [ScrollNotification] should be
+  /// handled by this widget.
+  ///
+  /// By default, checks whether `notification.depth == 0`. That means if the
+  /// scrollbar is wrapped around multiple [ScrollView]s, it only responds to the
+  /// nearest scrollView and shows the corresponding scrollbar thumb.
+  /// {@endtemplate}
+  final ScrollNotificationPredicate notificationPredicate;
+
+  /// {@template flutter.widgets.Scrollbar.interactive}
+  /// Whether the Scrollbar should be interactive and respond to dragging on the
+  /// thumb, or tapping in the track area.
+  ///
+  /// Does not apply to the [CupertinoScrollbar], which is always interactive to
+  /// match native behavior. On Android, the scrollbar is not interactive by
+  /// default.
+  ///
+  /// When false, the scrollbar will not respond to gesture or hover events,
+  /// and will allow to click through it.
+  ///
+  /// Defaults to true when null, unless on Android, which will default to false
+  /// when null.
+  ///
+  /// See also:
+  ///
+  ///   * [RawScrollbarState.enableGestures], an overridable getter which uses
+  ///     this value to override the default behavior.
+  /// {@endtemplate}
+  final bool? interactive;
+
+  /// {@macro flutter.widgets.Scrollbar.scrollbarOrientation}
+  final ScrollbarOrientation? scrollbarOrientation;
+
+  /// Distance from the scrollbar thumb's start or end to the nearest edge of
+  /// the viewport in logical pixels. It affects the amount of available
+  /// paint area.
+  ///
+  /// The scrollbar track consumes this space.
+  ///
+  /// Mustn't be null and defaults to 0.
+  final double mainAxisMargin;
+
+  /// Distance from the scrollbar thumb's side to the nearest cross axis edge
+  /// in logical pixels.
+  ///
+  /// The scrollbar track consumes this space.
+  ///
+  /// Defaults to zero.
+  final double crossAxisMargin;
+
+  /// The insets by which the scrollbar thumb and track should be padded.
+  ///
+  /// When null, the inherited [MediaQueryData.padding] is used.
+  ///
+  /// Defaults to null.
+  final EdgeInsetsGeometry? padding;
+
+  final BorderRadius borderRadius;
+
+  const ScrollbarDecoration({
+    this.showLineNumberIndicator = true,
+    this.lineNumberStyle,
+    this.thumbColor,
+    this.thickness,
+    this.thumbVisibility,
+    this.borderRadius = BorderRadius.zero,
+    this.minThumbLength = 18.0,
+    this.minOverscrollLength,
+    this.trackVisibility,
+    this.trackRadius,
+    this.trackColor,
+    this.trackBorderColor,
+    this.fadeDuration = const Duration(milliseconds: 300),
+    this.timeToFade = const Duration(milliseconds: 600),
+    this.pressDuration = Duration.zero,
+    this.notificationPredicate = defaultScrollNotificationPredicate,
+    this.interactive,
+    this.scrollbarOrientation,
+    this.mainAxisMargin = 0.0,
+    this.crossAxisMargin = 0.0,
+    this.padding,
+  });
+}
+
 /// This class provides styling options for code selection in the code editor.
 class CodeSelectionStyle {
   /// The color of the cursor line, defaults to the highlight theme text color.

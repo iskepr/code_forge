@@ -5,9 +5,10 @@ import 'package:code_forge/code_forge.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:re_highlight/languages/dart.dart';
-import 'package:re_highlight/styles/atom-one-dark-reasonable.dart';
+import 'package:re_highlight/styles/github-dark.dart';
 
-void main() {
+Future<void> main() async {
+  await RustLib.init();
   runApp(const MyApp());
 }
 
@@ -74,7 +75,7 @@ class _MyAppState extends State<MyApp> {
               return CodeForge(
                 undoController: undoController,
                 language: langDart,
-                editorTheme: atomOneDarkReasonableTheme,
+                editorTheme: githubDarkTheme,
                 controller: codeController,
                 textStyle: GoogleFonts.jetBrainsMono(),
                 filePath: absFilePath,

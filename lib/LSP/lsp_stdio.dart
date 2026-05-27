@@ -62,6 +62,9 @@ class LspStdioConfig extends LspConfig {
   ///```
   final String executable;
 
+  @override
+  bool get forceFullDocumentSync => executable.contains('ccls');
+
   /// Optional arguments for the executable.
   final List<String>? args;
 
@@ -70,7 +73,7 @@ class LspStdioConfig extends LspConfig {
 
   late Process _process;
   final _buffer = <int>[];
-  bool _isSending = false;
+  Future<void> _sendTail = Future<void>.value();
 
   LspStdioConfig._({
     required this.executable,
@@ -97,6 +100,11 @@ class LspStdioConfig extends LspConfig {
     bool disableWarning = false,
     bool disableError = false,
   }) async {
+    final effectiveInitializationOptions = _withCclsInitializationDefaults(
+      executable,
+      initializationOptions,
+    );
+
     final config = LspStdioConfig._(
       executable: executable,
       languageId: languageId,
@@ -106,11 +114,60 @@ class LspStdioConfig extends LspConfig {
       disableWarning: disableWarning,
       disableError: disableError,
       capabilities: capabilities,
-      initializationOptions: initializationOptions,
+      initializationOptions: effectiveInitializationOptions,
       workspaceConfiguration: workspaceConfiguration,
     );
     await config._startProcess();
     return config;
+  }
+
+  static Map<String, dynamic> _withCclsInitializationDefaults(
+    String executable,
+    Map<String, dynamic> initializationOptions,
+  ) {
+    if (!executable.toLowerCase().contains('ccls')) {
+      return initializationOptions;
+    }
+
+    final defaults = <String, dynamic>{
+      'highlight': {'enabled': true, 'lsRanges': true},
+      'index': {'onChange': true},
+    };
+
+    return _deepMergeMaps(defaults, initializationOptions);
+  }
+
+  static Map<String, dynamic> _deepMergeMaps(
+    Map<String, dynamic> base,
+    Map<String, dynamic> overrides,
+  ) {
+    final merged = <String, dynamic>{};
+
+    for (final entry in base.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        merged[entry.key] = Map<String, dynamic>.from(
+          value.cast<dynamic, dynamic>(),
+        );
+      } else {
+        merged[entry.key] = value;
+      }
+    }
+
+    for (final entry in overrides.entries) {
+      final existing = merged[entry.key];
+      final incoming = entry.value;
+      if (existing is Map && incoming is Map) {
+        merged[entry.key] = _deepMergeMaps(
+          Map<String, dynamic>.from(existing.cast<dynamic, dynamic>()),
+          Map<String, dynamic>.from(incoming.cast<dynamic, dynamic>()),
+        );
+      } else {
+        merged[entry.key] = incoming;
+      }
+    }
+
+    return merged;
   }
 
   Future<void> _startProcess() async {
@@ -178,12 +235,15 @@ class LspStdioConfig extends LspConfig {
       'method': method,
       'params': params,
     };
-    await _sendLspMessage(request);
 
-    return await _responseController.stream.firstWhere(
+    final responseFuture = _responseController.stream.firstWhere(
       (response) => response['id'] == id,
       orElse: () => throw TimeoutException('No response for request $id'),
     );
+
+    await _sendLspMessage(request);
+
+    return await responseFuture;
   }
 
   @override
@@ -210,31 +270,22 @@ class LspStdioConfig extends LspConfig {
 
   Future<void> _sendLspMessage(Map<String, dynamic> message) async {
     final completer = Completer<void>();
-    Future<void> sendOperation() async {
+    _sendTail = _sendTail.catchError((_) {}).then((_) async {
       try {
         final body = utf8.encode(jsonEncode(message));
         final header = utf8.encode('Content-Length: ${body.length}\r\n\r\n');
         final combined = <int>[...header, ...body];
         _process.stdin.add(combined);
         await _process.stdin.flush();
-        completer.complete();
-      } catch (e) {
-        completer.completeError(e);
-      }
-    }
-
-    if (!_isSending) {
-      _isSending = true;
-      await sendOperation();
-      _isSending = false;
-    } else {
-      while (_isSending) {
-        await Future.delayed(const Duration(microseconds: 100));
-      }
-      _isSending = true;
-      await sendOperation();
-      _isSending = false;
-    }
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      } catch (e, st) {
+        if (!completer.isCompleted) {
+          completer.completeError(e, st);
+        }
+      } finally {}
+    });
 
     return completer.future;
   }

@@ -45,6 +45,8 @@ sealed class LspConfig {
   int _nextId = 1;
   final _openDocuments = <String, int>{};
   List<String>? _serverTokenTypes, _serverTokenModifiers;
+  bool _serverSupportsSemanticTokensRange = false;
+  bool _serverSupportsSemanticTokensFull = false;
   final Map<String, dynamic> _initOptions = {};
 
   bool isInitialized = false;
@@ -61,6 +63,16 @@ sealed class LspConfig {
   /// Returns null if not yet initialized.
   List<String>? get serverTokenModifiers => _serverTokenModifiers;
 
+  /// Whether the server supports semantic token range requests.
+  bool get supportsSemanticTokensRange => _serverSupportsSemanticTokensRange;
+
+  /// Whether the server supports semantic token full requests.
+  bool get supportsSemanticTokensFull => _serverSupportsSemanticTokensFull;
+
+  /// Whether the server supports semantic token pull requests.
+  bool get supportsSemanticTokensPull =>
+      _serverSupportsSemanticTokensRange || _serverSupportsSemanticTokensFull;
+
   LspConfig({
     required this.workspacePath,
     required this.languageId,
@@ -71,7 +83,7 @@ sealed class LspConfig {
     this.disableError = false,
   }) {
     _initOptions.addAll({
-      "highlight": {'enabled': true},
+      "highlight": {'enabled': true, 'lsRanges': true},
       ...initializationOptions,
     });
   }
@@ -109,6 +121,10 @@ sealed class LspConfig {
   /// This is used to reply to server-initiated requests.
   Future<Map<String, dynamic>> sendResponse(int id, List<dynamic> result);
 
+  /// Whether this server should always use full-document didChange sync.
+  /// ccls is handled in this mode for semantic highlight compatibility.
+  bool get forceFullDocumentSync => false;
+
   /// This method is used to initialize the LSP server.
   ///
   /// This method is used internally by the [CodeForge] widget and calling it directly is not recommended.
@@ -134,8 +150,17 @@ sealed class LspConfig {
     }
 
     final capabilities = response['result']?['capabilities'];
+    _serverSupportsSemanticTokensRange = false;
+    _serverSupportsSemanticTokensFull = false;
     final semanticTokensProvider = capabilities?['semanticTokensProvider'];
     if (semanticTokensProvider != null) {
+      final rangeSupport = semanticTokensProvider['range'];
+      _serverSupportsSemanticTokensRange =
+          rangeSupport == true || rangeSupport is Map;
+      final fullSupport = semanticTokensProvider['full'];
+      _serverSupportsSemanticTokensFull =
+          fullSupport == true || fullSupport is Map;
+
       final legend = semanticTokensProvider['legend'];
       if (legend != null) {
         _serverTokenTypes = List<String>.from(legend['tokenTypes'] ?? []);
@@ -216,8 +241,9 @@ sealed class LspConfig {
 
     textDocumentCapabilities['synchronization'] = {
       'didSave': true,
-      'change': 1,
+      'change': forceFullDocumentSync ? 1 : 2,
     };
+
     textDocumentCapabilities['publishDiagnostics'] = {
       'relatedInformation': true,
     };
@@ -260,15 +286,30 @@ sealed class LspConfig {
 
   /// Updates the document content in the LSP server.
   ///
-  /// Sends a 'didChange' notification to the LSP server with the new [content].
+  /// Sends a 'didChange' notification to the LSP server.
+  /// If [contentChanges] is provided, the update is sent incrementally.
   /// If the document is not open, this method does nothing.
-  Future<void> updateDocument(String filePath, String content) async {
+  Future<void> updateDocument(
+    String filePath,
+    String content, {
+    List<Map<String, dynamic>>? contentChanges,
+  }) async {
     if (!_openDocuments.containsKey(filePath)) {
-      return; // Apply language-specific overrides
+      return;
     }
 
     final version = _openDocuments[filePath]! + 1;
     _openDocuments[filePath] = version;
+
+    final changes = forceFullDocumentSync
+        ? [
+            {'text': content},
+          ]
+        : (contentChanges != null && contentChanges.isNotEmpty
+              ? contentChanges
+              : [
+                  {'text': content},
+                ]);
 
     await sendNotification(
       method: 'textDocument/didChange',
@@ -277,9 +318,7 @@ sealed class LspConfig {
           'uri': Uri.file(filePath).toString(),
           'version': version,
         },
-        'contentChanges': [
-          {'text': content},
-        ],
+        'contentChanges': changes,
       },
     );
   }
@@ -1008,6 +1047,37 @@ sealed class LspConfig {
     return _decodeSemanticTokens(tokens);
   }
 
+  /// Gets semantic tokens for a specific visible range in the document.
+  Future<List<LspSemanticToken>> getSemanticTokensRange(
+    String filePath, {
+    required int startLine,
+    required int startCharacter,
+    required int endLine,
+    required int endCharacter,
+  }) async {
+    if (!capabilities.semanticHighlighting) return [];
+
+    if (!_serverSupportsSemanticTokensRange) {
+      if (!_serverSupportsSemanticTokensFull) return [];
+      return getSemanticTokensFull(filePath);
+    }
+
+    final response = await sendRequest(
+      method: 'textDocument/semanticTokens/range',
+      params: {
+        'textDocument': {'uri': Uri.file(filePath).toString()},
+        'range': {
+          'start': {'line': startLine, 'character': startCharacter},
+          'end': {'line': endLine, 'character': endCharacter},
+        },
+      },
+    );
+
+    final tokens = response['result']?['data'];
+    if (tokens is! List) return [];
+    return _decodeSemanticTokens(tokens);
+  }
+
   List<LspSemanticToken> _decodeSemanticTokens(List<dynamic> data) {
     final result = <LspSemanticToken>[];
     int line = 0, start = 0;
@@ -1110,7 +1180,7 @@ Map<CompletionItemType, Icon> completionItemIcons = {
   CompletionItemType.snippet: Icon(Icons.rounded_corner, color: Colors.grey),
   CompletionItemType.color: Icon(Icons.color_lens, color: Colors.grey),
   CompletionItemType.file: Icon(Icons.insert_drive_file, color: Colors.grey),
-  CompletionItemType.reference: Icon(CustomIcons.reference, color: Colors.grey),
+  CompletionItemType.reference: Icon(Icons.file_present, color: Colors.grey),
   CompletionItemType.folder: Icon(Icons.folder, color: Colors.grey),
   CompletionItemType.enumMember: Icon(
     Icons.notes,
@@ -1130,8 +1200,8 @@ Map<CompletionItemType, Icon> completionItemIcons = {
   ),
   CompletionItemType.operator: Icon(CustomIcons.operator, color: Colors.grey),
   CompletionItemType.typeParameter: Icon(
-    CustomIcons.parameter,
-    color: const Color(0xffee9d28),
+    Icons.nat_outlined,
+    color: const Color(0xff75beff),
   ),
 };
 
@@ -1139,11 +1209,9 @@ class CustomIcons {
   static const IconData method = IconData(0xe900, fontFamily: 'Method');
   static const IconData variable = IconData(0xe900, fontFamily: 'Variable');
   static const IconData class_ = IconData(0xe900, fontFamily: 'Class');
-  static const IconData reference = IconData(0x900, fontFamily: 'Reference');
   static const IconData struct = IconData(0x900, fontFamily: 'Struct');
   static const IconData event = IconData(0x900, fontFamily: 'Event');
   static const IconData operator = IconData(0x900, fontFamily: 'Operator');
-  static const IconData parameter = IconData(0x900, fontFamily: 'Parameter');
   static const IconData interface = IconData(0x900, fontFamily: 'Interface');
   static const IconData field = IconData(0x900, fontFamily: 'Field');
 
@@ -1154,11 +1222,9 @@ class CustomIcons {
       'Method': 'assets/icons/method.ttf',
       'Variable': 'assets/icons/variable.ttf',
       'Class': 'assets/icons/class.ttf',
-      'Reference': 'assets/icons/reference.ttf',
       'Struct': 'assets/icons/struct.ttf',
       'Event': 'assets/icons/event.ttf',
       'Operator': 'assets/icons/operator.ttf',
-      'Parameter': 'assets/icons/parameter.ttf',
       'Interface': 'assets/icons/interface.ttf',
       'Field': 'assets/icons/field.ttf',
     };

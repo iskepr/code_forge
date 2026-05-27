@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -97,4 +98,191 @@ class Render2DCodeField extends RenderTwoDimensionalViewport {
       );
     }
   }
+}
+
+class CustomScrollbar extends RawScrollbar {
+  final TextStyle lineNumberStyle;
+  final bool showLineNumberIndicator;
+  final ValueNotifier<int> lineNumberNotifier;
+  final BorderRadius borderRadius;
+  final TextDirection textDirection;
+
+  const CustomScrollbar({
+    super.key,
+    required super.child,
+    required super.controller,
+    required this.lineNumberStyle,
+    required this.lineNumberNotifier,
+    required this.showLineNumberIndicator,
+    required this.borderRadius,
+    required this.textDirection,
+    super.thumbVisibility,
+    super.interactive,
+    super.thumbColor,
+    super.thickness,
+    super.crossAxisMargin,
+    super.mainAxisMargin,
+    super.scrollbarOrientation,
+    super.trackBorderColor,
+    super.fadeDuration,
+    super.timeToFade,
+    super.trackRadius,
+    super.trackVisibility,
+    super.minOverscrollLength,
+    super.minThumbLength,
+    super.padding,
+    super.pressDuration,
+    super.trackColor,
+    super.notificationPredicate,
+  });
+
+  @override
+  RawScrollbarState<RawScrollbar> createState() => _CustomScrollbarState();
+}
+
+class _CustomScrollbarState extends RawScrollbarState<CustomScrollbar> {
+  bool _isDragging = false;
+  @override
+  void initState() {
+    super.initState();
+    widget.lineNumberNotifier.addListener(_onLineNumberChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.lineNumberNotifier.removeListener(_onLineNumberChanged);
+    super.dispose();
+  }
+
+  void _onLineNumberChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void handleThumbPressStart(Offset localPosition) {
+    super.handleThumbPressStart(localPosition);
+    setState(() => _isDragging = true);
+  }
+
+  @override
+  void handleThumbPressEnd(Offset localPosition, Velocity velocity) {
+    super.handleThumbPressEnd(localPosition, velocity);
+    setState(() => _isDragging = false);
+  }
+
+  @override
+  void updateScrollbarPainter() {
+    scrollbarPainter
+      ..color = widget.thumbColor ?? Colors.grey.withAlpha(100)
+      ..textDirection = Directionality.of(context)
+      ..thickness = widget.thickness ?? 8.0
+      ..shape = _CustomThumbBorder(
+        isDragging: _isDragging,
+        showLineNumberIndicator: widget.showLineNumberIndicator,
+        color: widget.thumbColor ?? Colors.grey.withAlpha(100),
+        lineNumber: widget.lineNumberNotifier.value,
+        lineNumberStyle: widget.lineNumberStyle,
+        borderRadius: widget.borderRadius,
+        textDirection: widget.textDirection,
+        thickness: widget.thickness ?? 15,
+      );
+  }
+}
+
+class _CustomThumbBorder extends RoundedRectangleBorder {
+  final bool isDragging, showLineNumberIndicator;
+  final Color color;
+  final int lineNumber;
+  final TextStyle lineNumberStyle;
+  final TextDirection textDirection;
+  final double thickness;
+
+  late final TextPainter _lineNumberPainter;
+
+  _CustomThumbBorder({
+    required this.isDragging,
+    required this.color,
+    required this.lineNumber,
+    required this.lineNumberStyle,
+    required this.showLineNumberIndicator,
+    required this.textDirection,
+    required this.thickness,
+    required super.borderRadius,
+  }) : super(side: BorderSide.none) {
+    _lineNumberPainter =
+        TextPainter(
+            text: TextSpan(text: lineNumber.toString(), style: lineNumberStyle),
+          )
+          ..textDirection = textDirection
+          ..layout();
+  }
+
+  @override
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
+    if (!showLineNumberIndicator) return;
+
+    final double w = max(_lineNumberPainter.width + 10, 100);
+    final double h = max(_lineNumberPainter.height + 3, 30);
+
+    final paint = Paint()..color = color;
+
+    if (isDragging) {
+      final isLtr = this.textDirection == TextDirection.ltr;
+      final bubbleRect = Rect.fromLTWH(
+        isLtr
+            ? rect.center.dx - (105 + thickness)
+            : rect.center.dx + thickness + 10,
+        rect.center.dy - 15,
+        w,
+        h,
+      );
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(bubbleRect, Radius.circular(15)),
+        paint,
+      );
+
+      _lineNumberPainter.paint(
+        canvas,
+        Offset(
+          bubbleRect.left + (bubbleRect.width - _lineNumberPainter.width) / 2,
+          bubbleRect.top + (bubbleRect.height - _lineNumberPainter.height) / 2,
+        ),
+      );
+    }
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is _CustomThumbBorder &&
+        other.isDragging == isDragging &&
+        other.showLineNumberIndicator == showLineNumberIndicator &&
+        other.color == color &&
+        other.lineNumber == lineNumber &&
+        other.lineNumberStyle == lineNumberStyle &&
+        other.borderRadius == borderRadius;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    isDragging,
+    showLineNumberIndicator,
+    color,
+    lineNumber,
+    lineNumberStyle,
+    borderRadius,
+  );
+
+  @override
+  Path getInnerPath(Rect rect, {TextDirection? textDirection}) =>
+      Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(8)));
+
+  @override
+  Path getOuterPath(Rect rect, {TextDirection? textDirection}) =>
+      Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(8)));
+
+  @override
+  ShapeBorder scale(double t) => this;
 }
