@@ -61,6 +61,10 @@ class CodeForgeController implements DeltaTextInputClient {
   TextSelection _imeProjectionSelection = const TextSelection.collapsed(
     offset: 0,
   );
+  TextRange _imeComposingGlobal = TextRange.empty;
+  TextRange _imeProjectionComposing = TextRange.empty;
+  bool _suppressImeSync = false;
+  CompoundOperationHandle? _imeCompositionUndoGroup;
   bool _bufferDirty = false, bufferNeedsRepaint = false, selectionOnly = false;
   bool _imeProjectionDirty = true, _imeSelectionNeedsResync = false;
   bool deleteFoldRangeOnDeletingFirstLine = false;
@@ -2349,6 +2353,12 @@ class CodeForgeController implements DeltaTextInputClient {
     _ensureImeProjection();
     bool typingDetected = false;
 
+    _suppressImeSync = true;
+    _beginImeCompositionUndoGroup(
+      textEditingDeltas.any(
+        (d) => d.composing.isValid && !d.composing.isCollapsed,
+      ),
+    );
     for (final delta in textEditingDeltas) {
       if (delta is TextEditingDeltaNonTextUpdate) {
         if (_lastSentSelection == null ||
@@ -2357,6 +2367,12 @@ class CodeForgeController implements DeltaTextInputClient {
         }
         _lastSentSelection = null;
         _imeSelectionNeedsResync = false;
+        _trackImeComposing(
+          delta.composing,
+          delta.selection.isValid
+              ? delta.selection.extentOffset
+              : delta.composing.end,
+        );
         continue;
       }
 
@@ -2434,9 +2450,20 @@ class CodeForgeController implements DeltaTextInputClient {
           _localImeSelectionToGlobal(delta.selection),
         );
       }
+
+      _trackImeComposing(
+        delta.composing,
+        delta.selection.isValid
+            ? delta.selection.extentOffset
+            : delta.composing.end,
+      );
     }
+    _endImeCompositionUndoGroupIfIdle();
+    _suppressImeSync = false;
 
     _isTyping = typingDetected;
+
+    _imeProjectionDirty = true;
 
     notifyListeners();
   }
@@ -2507,6 +2534,10 @@ class CodeForgeController implements DeltaTextInputClient {
   }
 
   void _syncToConnection() {
+    if (_suppressImeSync) return;
+    if (_imeComposingGlobal.isValid && !_imeComposingGlobal.isCollapsed) {
+      return;
+    }
     if (connection != null && connection!.attached) {
       _ensureImeProjection();
       _lastSentSelection = _imeProjectionSelection;
@@ -2514,6 +2545,7 @@ class CodeForgeController implements DeltaTextInputClient {
         TextEditingValue(
           text: _imeProjectionText,
           selection: _imeProjectionSelection,
+          composing: _imeProjectionComposing,
         ),
       );
     }
@@ -2603,6 +2635,7 @@ class CodeForgeController implements DeltaTextInputClient {
       _imeProjectionStartOffset = 0;
       _imeProjectionText = '';
       _imeProjectionSelection = const TextSelection.collapsed(offset: 0);
+      _imeProjectionComposing = TextRange.empty;
       _imeProjectionDirty = false;
       return;
     }
@@ -2667,6 +2700,10 @@ class CodeForgeController implements DeltaTextInputClient {
       baseOffset: localBase,
       extentOffset: localExtent,
     );
+    _imeProjectionComposing = _projectComposing(
+      projectionStartOffset,
+      projectionText.length,
+    );
     _imeProjectionDirty = false;
   }
 
@@ -2674,7 +2711,7 @@ class CodeForgeController implements DeltaTextInputClient {
     _ensureImeProjection();
     final result = (_imeProjectionStartOffset + localOffset).clamp(
       0,
-      _rope.length,
+      length,
     );
     return result;
   }
@@ -2684,6 +2721,74 @@ class CodeForgeController implements DeltaTextInputClient {
       baseOffset: _localImeOffsetToGlobal(localSelection.baseOffset),
       extentOffset: _localImeOffsetToGlobal(localSelection.extentOffset),
     );
+  }
+
+  /// Maps the tracked global composing region into the active IME projection
+  /// window's local coordinate space, clamped to the projected text.
+  ///
+  /// Returns [TextRange.empty] when there is no active composition or when the
+  /// region lies entirely outside the projected window (and therefore cannot be
+  /// represented to the platform faithfully).
+  TextRange _projectComposing(int projectionStartOffset, int projectionLength) {
+    final composing = _imeComposingGlobal;
+    if (!composing.isValid || composing.isCollapsed) return TextRange.empty;
+    final localStart = composing.start - projectionStartOffset;
+    final localEnd = composing.end - projectionStartOffset;
+    if (localEnd <= 0 || localStart >= projectionLength) return TextRange.empty;
+    final clampedStart = localStart.clamp(0, projectionLength);
+    final clampedEnd = localEnd.clamp(0, projectionLength);
+    if (clampedStart >= clampedEnd) return TextRange.empty;
+    return TextRange(start: clampedStart, end: clampedEnd);
+  }
+
+  /// Records the IME composing region (reported in the projection's local
+  /// coordinates) as a stable global-document range.
+  ///
+  /// The region is anchored to the editor's *actual* post-edit caret rather
+  /// than to the IME's raw offset, so it stays correct even when an insertion
+  /// is re-anchored to the current selection (see [updateEditingValueWithDeltas]
+  /// and its `useCurrentSelection` path) or while typed characters are still
+  /// held in the line buffer.
+  void _trackImeComposing(TextRange imeComposing, int imeCaretLocal) {
+    if (!imeComposing.isValid || imeComposing.isCollapsed) {
+      _imeComposingGlobal = TextRange.empty;
+      return;
+    }
+    final caretGlobal = _selection.extentOffset;
+    final caretWithin = imeCaretLocal - imeComposing.start;
+    final startGlobal = caretGlobal - caretWithin;
+    final composingLength = imeComposing.end - imeComposing.start;
+    final docLength = length;
+    final start = startGlobal.clamp(0, docLength);
+    final end = (startGlobal + composingLength).clamp(0, docLength);
+    _imeComposingGlobal = start < end
+        ? TextRange(start: start, end: end)
+        : TextRange.empty;
+  }
+
+  /// Opens a single undo group spanning an entire IME composition so the
+  /// intermediate composing edits (e.g. the raw pinyin letters) collapse into
+  /// one undoable unit together with the final committed text.
+  ///
+  /// A composition is reported across multiple input callbacks, so the group
+  /// is opened on the first callback that carries a composing region and is
+  /// kept open (see [_imeCompositionUndoGroup]) until the composition ends.
+  /// Must be called before the edit for the current callback is recorded.
+  void _beginImeCompositionUndoGroup(bool incomingHasComposing) {
+    if (incomingHasComposing && _imeCompositionUndoGroup == null) {
+      _imeCompositionUndoGroup = _undoController?.beginCompoundOperation();
+    }
+  }
+
+  /// Closes the composition undo group once the composition is no longer
+  /// active, merging everything recorded since it was opened into a single
+  /// undo entry. Safe to call when no group is open.
+  void _endImeCompositionUndoGroupIfIdle() {
+    if (_imeCompositionUndoGroup != null &&
+        (!_imeComposingGlobal.isValid || _imeComposingGlobal.isCollapsed)) {
+      _imeCompositionUndoGroup!.end();
+      _imeCompositionUndoGroup = null;
+    }
   }
 
   /// Remove the selection or last char if the selection is empty (backspace key)
@@ -3092,6 +3197,9 @@ class CodeForgeController implements DeltaTextInputClient {
       connection = null;
       focusNode?.unfocus();
     }
+    _imeComposingGlobal = TextRange.empty;
+    _imeCompositionUndoGroup?.end();
+    _imeCompositionUndoGroup = null;
   }
 
   @protected
@@ -3108,6 +3216,7 @@ class CodeForgeController implements DeltaTextInputClient {
     return TextEditingValue(
       text: _imeProjectionText,
       selection: _imeProjectionSelection,
+      composing: _imeProjectionComposing,
     );
   }
 
@@ -3155,7 +3264,11 @@ class CodeForgeController implements DeltaTextInputClient {
   void updateEditingValue(TextEditingValue value) {
     if (readOnly) return;
 
+    _suppressImeSync = true;
     _ensureImeProjection();
+    _beginImeCompositionUndoGroup(
+      value.composing.isValid && !value.composing.isCollapsed,
+    );
 
     final currentText = _imeProjectionText;
     final nextText = value.text;
@@ -3196,6 +3309,14 @@ class CodeForgeController implements DeltaTextInputClient {
     _imeProjectionDirty = true;
     dirtyRegion = TextRange(start: 0, end: _rope.length);
     dirtyLine = null;
+    _trackImeComposing(
+      value.composing,
+      value.selection.isValid
+          ? value.selection.extentOffset
+          : value.composing.end,
+    );
+    _endImeCompositionUndoGroupIfIdle();
+    _suppressImeSync = false;
     notifyListeners();
   }
 
@@ -3246,6 +3367,7 @@ class CodeForgeController implements DeltaTextInputClient {
   }) {
     if (_undoController?.isUndoRedoInProgress ?? false) return;
 
+    if (!_suppressImeSync) _imeComposingGlobal = TextRange.empty;
     final selectionBefore = _selection;
     _flushBuffer();
     final safeStart = start.clamp(0, _rope.length);
