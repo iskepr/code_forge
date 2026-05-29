@@ -247,6 +247,12 @@ class UndoRedoController extends ChangeNotifier {
   /// Whether an undo/redo operation is currently in progress
   bool _isUndoRedoInProgress = false;
 
+  /// When set, the next recorded edit will not be merged into the previous
+  /// one. Used so that the first edit inside a compound operation never merges
+  /// into an edit recorded before the compound began (which would let it
+  /// escape the group).
+  bool _suppressNextMerge = false;
+
   UndoRedoController({this.maxStackSize = 1000, this.groupEdits = true});
 
   /// Whether undo is available
@@ -277,14 +283,16 @@ class UndoRedoController extends ChangeNotifier {
       _redoStack.clear();
     }
 
-    if (groupEdits && _undoStack.isNotEmpty) {
+    if (groupEdits && _undoStack.isNotEmpty && !_suppressNextMerge) {
       final last = _undoStack.last;
       if (last.canMergeWith(operation)) {
         _undoStack[_undoStack.length - 1] = last.mergeWith(operation);
+        _suppressNextMerge = false;
         notifyListeners();
         return;
       }
     }
+    _suppressNextMerge = false;
 
     _undoStack.add(operation);
 
@@ -342,6 +350,7 @@ class UndoRedoController extends ChangeNotifier {
   /// Begin a compound operation that should be undone as a single unit.
   /// Call [endCompoundOperation] when done.
   CompoundOperationHandle beginCompoundOperation() {
+    _suppressNextMerge = true;
     return CompoundOperationHandle._(this);
   }
 
