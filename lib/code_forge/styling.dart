@@ -833,6 +833,58 @@ class GhostText {
   });
 }
 
+/// An in-progress IME composition (e.g. CJK pinyin/kana), rendered as a
+/// transient overlay above the document rather than written into it.
+///
+/// While a composition is active the editor's document (rope) is left
+/// untouched; the composing text lives only in an instance of this class and
+/// is painted at [anchor]. The committed result is written to the document as
+/// a single edit only when the platform input method finalizes the
+/// composition. This keeps the document free of transient composing glyphs
+/// and lets the editor render the composing string itself. [displayText]
+/// preserves the platform composing string for display (for example `hao'jia`),
+/// while [commitText] stores the user's typed intent for interruption commits.
+@immutable
+class ImeComposition {
+  /// Global document offset where composition starts.
+  final int anchor;
+
+  /// The text displayed in the IME overlay (exactly as reported by the platform).
+  /// This includes any input method decorators like pinyin separators (a'a'a'a).
+  final String displayText;
+
+  /// Local caret position within [displayText].
+  final int displayCaret;
+
+  /// The intended text to be committed if the composition is interrupted.
+  /// This is determined by the Incremental Intent Tracking algorithm to
+  /// distinguish between user-typed characters and IME-auto-generated characters.
+  final String commitText;
+
+  ImeComposition({
+    required this.anchor,
+    required this.displayText,
+    required this.displayCaret,
+    required this.commitText,
+  });
+
+  /// Whether there is no composing text (an inactive composition).
+  bool get isEmpty => displayText.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ImeComposition &&
+          other.anchor == anchor &&
+          other.displayText == displayText &&
+          other.displayCaret == displayCaret &&
+          other.commitText == commitText;
+
+  @override
+  int get hashCode =>
+      Object.hash(anchor, displayText, displayCaret, commitText);
+}
+
 /// Represents a block of removed lines to be displayed virtually in the editor.
 ///
 /// Virtual removed lines appear between real document lines, showing

@@ -26,7 +26,19 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 
 const int kSemanticTokenViewportPaddingLines = 1500;
-const String _wordCharPattern = r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF]';
+// Characters treated as part of a "word" for double-click selection, word-prefix
+// extraction, and hover. Covers Latin/digits/underscore (\w), Arabic and Hebrew,
+// and CJK: Hiragana (3040-309F), Katakana (30A0-30FF), CJK Extension A
+// (3400-4DBF), CJK Unified Ideographs (4E00-9FFF), Hangul Syllables (AC00-D7AF),
+// and CJK Compatibility Ideographs (F900-FAFF). Without the CJK ranges every CJK
+// glyph counts as a word boundary, so double-clicking Chinese/Japanese/Korean
+// text selects nothing; including them makes a double-click select the
+// contiguous CJK run, mirroring how it selects a run of Latin letters. CJK
+// punctuation/symbol blocks are intentionally excluded so they remain
+// boundaries, like ASCII punctuation.
+const String _wordCharPattern =
+    r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF'
+    r'\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]';
 
 /// A highly customizable code editor widget for Flutter.
 ///
@@ -556,30 +568,32 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && !_readOnly) {
         if (_connection == null || !_connection!.attached) {
-          _connection = TextInput.attach(
-            _controller,
-            TextInputConfiguration(
-              readOnly: widget.readOnly,
-              enableDeltaModel: true,
-              enableSuggestions: widget.enableKeyboardSuggestions,
-              inputType: widget.keyboardType,
-              inputAction: TextInputAction.newline,
-              autocorrect: false,
-              viewId: View.of(context).viewId,
-            ),
-          );
+          _connection = _attachImeConnection();
 
           _controller.connection = _connection;
-          _connection!.show();
-          _connection!.setEditingState(
-            TextEditingValue(
-              text: _controller.text,
-              selection: _controller.selection,
-            ),
-          );
         }
+        // Always (re)activate the platform IME when focus is gained, even if a
+        // connection was already attached before focus (see the post-frame path
+        // below). Without show() the desktop IME never becomes the active input
+        // client: on macOS this blocks text input entirely, and on Windows it
+        // leaves the editor able to highlight lines but unable to accept typing.
+        _connection!.show();
+        // Seed the platform with the IME projection (the small window around the
+        // caret) rather than the full document. The controller's input handlers
+        // operate in projection coordinates, so seeding the full text leaves the
+        // two out of sync and makes the first typed/composed characters land far
+        // from the caret (e.g. on a line above where the user clicked).
+        _connection!.setEditingState(
+          _controller.currentTextEditingValue ??
+              TextEditingValue(
+                text: _controller.text,
+                selection: _controller.selection,
+              ),
+        );
       }
     });
+
+    _controller.requestImeReset = _resetImeConnection;
 
     Future.microtask(CustomIcons.loadAllCustomFonts);
 
@@ -750,26 +764,64 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
       if (widget.autoFocus) {
         _focusNode.requestFocus();
       } else {
-        _connection = TextInput.attach(
-          _controller,
-          TextInputConfiguration(
-            readOnly: widget.readOnly,
-            enableDeltaModel: true,
-            enableSuggestions: widget.enableKeyboardSuggestions,
-            inputType: widget.keyboardType,
-            inputAction: TextInputAction.newline,
-            autocorrect: false,
-            viewId: View.of(context).viewId,
-          ),
-        );
+        _connection = _attachImeConnection();
 
-        _connection!.setEditingState(TextEditingValue(text: _controller.text));
+        _connection!.setEditingState(
+          _controller.currentTextEditingValue ??
+              TextEditingValue(text: _controller.text),
+        );
 
         if (_isMobile) _focusNode.requestFocus();
 
         _controller.connection = _connection;
       }
     });
+  }
+
+  /// Attaches a platform text-input connection configured for this editor.
+  /// Shared by the initial attach, the focus-gain re-attach, and the IME reset
+  /// that drops an in-progress composition so the OS closes its candidate
+  /// window.
+  TextInputConnection _attachImeConnection() {
+    return TextInput.attach(
+      _controller,
+      TextInputConfiguration(
+        readOnly: widget.readOnly,
+        enableDeltaModel: true,
+        enableSuggestions: widget.enableKeyboardSuggestions,
+        inputType: widget.keyboardType,
+        inputAction: TextInputAction.newline,
+        autocorrect: false,
+        viewId: View.of(context).viewId,
+      ),
+    );
+  }
+
+  /// Closes and re-attaches the platform input connection. On desktop this is
+  /// the only reliable way to make the IME abandon an in-progress composition
+  /// and close its candidate window -- pushing an empty composing range via
+  /// setEditingState does not. The document already holds the composed
+  /// characters, so they stay committed; only the platform-side composition
+  /// session is dropped. Wired to [CodeForgeController.requestImeReset].
+  void _resetImeConnection() {
+    if (_readOnly || !_focusNode.hasFocus) return;
+    final previous = _connection;
+    _connection = null;
+    _controller.connection = null;
+    try {
+      previous?.close();
+    } catch (_) {}
+    final fresh = _attachImeConnection();
+    _connection = fresh;
+    _controller.connection = fresh;
+    fresh.show();
+    fresh.setEditingState(
+      _controller.currentTextEditingValue ??
+          TextEditingValue(
+            text: _controller.text,
+            selection: _controller.selection,
+          ),
+    );
   }
 
   void _updateScrollbarLineNumberIndicator() {
@@ -1631,6 +1683,15 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                             return Focus(
                                               focusNode: _focusNode,
                                               onKeyEvent: (node, event) {
+                                                // While an IME composition is in progress (e.g. CJK
+                                                // pinyin), the platform input method owns the keyboard.
+                                                // Defer every key to it: also handling Backspace, arrows,
+                                                // Enter, etc. here would edit the document a second time
+                                                // and desync from the IME (e.g. a backspaced letter
+                                                // reappearing).
+                                                if (_controller.isComposingActive) {
+                                                  return KeyEventResult.ignored;
+                                                }
                                                 final isCtrlAltPressed =
                                                     (HardwareKeyboard
                                                             .instance
@@ -4104,6 +4165,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   CodeSelectionStyle _selectionStyle;
   List<LspErrors> _diagnostics;
   int _cachedCaretOffset = -1, _cachedCaretLine = 0, _cachedCaretLineStart = 0;
+  Rect? _lastImeCaretRect;
+  Rect? _lastImeComposingRect;
+  Size? _lastImeEditableSize;
+  // Set by [_drawImeComposition] each paint: the composing caret offset and the
+  // composing string width, both in line-local content coordinates relative to
+  // the composing anchor. Consumed by [_updateImeGeometry] so the OS candidate
+  // window tracks the composition rather than the (frozen) document caret.
+  double _imeComposingCaretDx = 0.0;
+  double _imeComposingWidth = 0.0;
   int? _dragStartOffset;
   Timer? _selectionTimer, _hoverTimer;
   Offset? _pointerDownPosition;
@@ -5141,6 +5211,29 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       return;
     }
 
+    if (controller.imeCompositionChanged) {
+      controller.imeCompositionChanged = false;
+      // The composing caret/anchor may have moved, so its cached geometry is
+      // stale.
+      _caretInfoCache.clear();
+      if (!_isFoldToggleInProgress) {
+        _ensureCaretVisible();
+      }
+      if (controller.contentVersion == _lastProcessedContentVersion) {
+        // Pure overlay change (e.g. more pinyin letters); the document did not
+        // change, so just repaint the overlay.
+        markNeedsPaint();
+        return;
+      }
+      // The composition also changed the document (a commit, or a selection
+      // replacement at composition start). Clear the lightweight repaint flags
+      // so neither the selectionOnly nor the bufferNeedsRepaint branch below
+      // swallows this change, and fall through to the content path, which
+      // refreshes caches, layout and highlighting for the edited line.
+      controller.selectionOnly = false;
+      controller.bufferNeedsRepaint = false;
+    }
+
     if (controller.selectionOnly) {
       controller.selectionOnly = false;
       if (!_isFoldToggleInProgress) {
@@ -6157,7 +6250,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         !isRTL) {
       para = _paragraphCache[lineIndex]!;
     } else {
-      para = _buildParagraph(lineText, width: paragraphWidth);
+      // Measure against the highlighted paragraph so caret geometry matches the
+      // painted text and the IME composition overlay, which both lay out with
+      // per-token styles (e.g. bold keywords) whose glyph advances differ from
+      // the uniform plain style.
+      para = _buildHighlightedParagraph(
+        lineIndex,
+        lineText,
+        width: paragraphWidth,
+      );
     }
 
     final clampedCol = columnIndex.clamp(0, lineText.length);
@@ -6175,7 +6276,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(0, 1);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.right + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = contentWidth;
         }
@@ -6186,7 +6287,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         );
         if (boxes.isNotEmpty) {
           caretX = boxes.first.left + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = paragraphOffset;
         }
@@ -6194,7 +6295,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.left + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = contentWidth;
         }
@@ -6206,7 +6307,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.right;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         }
       }
     }
@@ -6260,7 +6361,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         !isRTL) {
       para = _paragraphCache[lineIndex]!;
     } else {
-      para = _buildParagraph(lineText, width: paragraphWidth);
+      // Measure against the highlighted paragraph so caret geometry matches the
+      // painted text and the IME composition overlay, which both lay out with
+      // per-token styles (e.g. bold keywords) whose glyph advances differ from
+      // the uniform plain style.
+      para = _buildHighlightedParagraph(
+        lineIndex,
+        lineText,
+        width: paragraphWidth,
+      );
     }
 
     final clampedCol = columnIndex.clamp(0, lineText.length);
@@ -6277,7 +6386,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(0, 1);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.right + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = contentWidth;
         }
@@ -6288,7 +6397,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         );
         if (boxes.isNotEmpty) {
           caretX = boxes.first.left + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = paragraphOffset;
         }
@@ -6296,7 +6405,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.left + paragraphOffset;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         } else {
           caretX = contentWidth;
         }
@@ -6308,7 +6417,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final boxes = para.getBoxesForRange(clampedCol - 1, clampedCol);
         if (boxes.isNotEmpty) {
           caretX = boxes.first.right;
-          caretYInLine = boxes.first.top;
+          caretYInLine = _rowTopForBox(boxes.first);
         }
       }
     }
@@ -6447,6 +6556,225 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   }
 
   Offset getCaretOffset() => _getCaretInfo().offset;
+
+  /// Reports the editable region's size/transform and the caret rectangle to
+  /// the platform input method, so the OS places the IME composition/candidate
+  /// window next to the caret instead of at the window's top-left corner. The
+  /// caret rect is derived from the same [_getCaretInfo] used to paint the
+  /// cursor, so the reported geometry matches what is drawn. Redundant pushes
+  /// from cheap repaints (e.g. the cursor blink) are skipped via a cache.
+  void _updateImeGeometry() {
+    final conn = controller.connection;
+    if (conn == null || !conn.attached) return;
+    if (!vscrollController.hasClients || !hscrollController.hasClients) return;
+
+    final caretInfo = _getCaretInfo();
+    final hScroll = _effectiveHScroll;
+    final vScroll = vscrollController.offset;
+    final composing = controller.imeComposition != null;
+
+    double contentX(double dxInLine) => isRTL
+        ? size.width - _gutterWidth - (innerPadding?.right ?? 0) - dxInLine
+        : dxInLine + _gutterWidth + (innerPadding?.left ?? 0);
+
+    final caretY = caretInfo.offset.dy + (innerPadding?.top ?? 0);
+
+    // The caret rect tracks the composing caret while composing, otherwise the
+    // document caret.
+    final caretInLine =
+        caretInfo.offset.dx + (composing ? _imeComposingCaretDx : 0.0);
+    final caretRect = Rect.fromLTWH(
+      contentX(caretInLine) - hScroll,
+      caretY - vScroll,
+      2.0,
+      caretInfo.height,
+    );
+
+    // The composing rect spans the whole composing string from the anchor so
+    // the OS candidate window docks under the composition itself.
+    final composingRect = composing
+        ? Rect.fromLTWH(
+            contentX(caretInfo.offset.dx) - hScroll,
+            caretY - vScroll,
+            _imeComposingWidth > 0 ? _imeComposingWidth : 2.0,
+            caretInfo.height,
+          )
+        : caretRect;
+
+    final editableSize = size;
+
+    if (caretRect == _lastImeCaretRect &&
+        composingRect == _lastImeComposingRect &&
+        editableSize == _lastImeEditableSize) {
+      return;
+    }
+    _lastImeCaretRect = caretRect;
+    _lastImeComposingRect = composingRect;
+    _lastImeEditableSize = editableSize;
+
+    conn.setEditableSizeAndTransform(editableSize, getTransformTo(null));
+    conn.setCaretRect(caretRect);
+    conn.setComposingRect(composingRect);
+  }
+
+  /// Paints the in-progress IME composition (CJK pinyin/kana, etc.) as an
+  /// overlay at the composing anchor. The composing text is not part of the
+  /// document, so the committed line is painted normally and this overlay is
+  /// composited on top: the composing string (underlined) is drawn at the
+  /// anchor and the committed remainder of the line is shifted to its right,
+  /// mirroring how ghost text is rendered. Also records the composing caret
+  /// offset and width for [_updateImeGeometry].
+  void _drawImeComposition(Canvas canvas, Offset offset, bool hasActiveFolds) {
+    _imeComposingCaretDx = 0.0;
+    _imeComposingWidth = 0.0;
+
+    final comp = controller.imeComposition;
+    if (comp == null || comp.displayText.isEmpty) return;
+
+    final anchorLine = controller.getLineAtOffset(comp.anchor);
+    if (hasActiveFolds && _isLineFolded(anchorLine)) return;
+
+    final lineY = _getLineYOffset(anchorLine, hasActiveFolds);
+    // Match the committed line's Y: innerPadding.top + lineY + virtualOffset
+    // - scroll (virtualOffset covers any virtual-removed blocks above this line).
+    final virtualYOffset = _getTotalVirtualOffset(anchorLine);
+    final viewportHeight = vscrollController.position.viewportDimension;
+    final screenYBase =
+        offset.dy +
+        (innerPadding?.top ?? 0) +
+        lineY +
+        virtualYOffset -
+        vscrollController.offset;
+    if (screenYBase + _lineHeight < offset.dy ||
+        screenYBase > offset.dy + viewportHeight) {
+      return;
+    }
+
+    final lineStartOffset = controller.getLineStartOffset(anchorLine);
+    final anchorCol = comp.anchor - lineStartOffset;
+    final lineText =
+        _lineTextCache[anchorLine] ?? controller.getLineText(anchorLine);
+    final clampedCol = anchorCol.clamp(0, lineText.length);
+
+    final paragraphWidth = lineWrap ? _wrapWidth : null;
+    final linePara =
+        _paragraphCache[anchorLine] ??
+        _buildHighlightedParagraph(anchorLine, lineText, width: paragraphWidth);
+
+    double anchorX = 0;
+    double rowTop = 0;
+    if (lineText.isNotEmpty && clampedCol > 0) {
+      // Place the overlay on the same visual row as the anchor. The committed
+      // line is painted at the plain row top and applies its line-height leading
+      // internally; the overlay paragraph uses the same line-height, so it must
+      // sit at that row top to line up. [_rowTopForBox] derives the row from the
+      // glyph box center so a CJK glyph before the anchor does not push it a row
+      // too high (see that helper).
+      final boxes = linePara.getBoxesForRange(
+        0,
+        clampedCol,
+        boxHeightStyle: ui.BoxHeightStyle.max,
+      );
+      if (boxes.isNotEmpty) {
+        final lastBox = boxes.last;
+        anchorX = lastBox.right;
+        rowTop = _rowTopForBox(lastBox);
+      }
+    }
+
+    final scroll = lineWrap ? 0.0 : _effectiveHScroll;
+    final screenX =
+        offset.dx + _gutterWidth + (innerPadding?.left ?? 0) + anchorX - scroll;
+    final screenY = screenYBase + rowTop;
+
+    final baseColor =
+        textStyle?.color ?? editorTheme['root']?.color ?? Colors.white;
+    final bgColor = editorTheme['root']?.backgroundColor ?? Colors.black;
+    final fontSize = textStyle?.fontSize ?? 14.0;
+    final fontFamily = textStyle?.fontFamily;
+    final lineHeightMultiplier = textStyle?.height ?? 1.2;
+
+    final overlayParagraphStyle = ui.ParagraphStyle(
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+      height: lineHeightMultiplier,
+      textDirection: textDirection,
+      textAlign: ui.TextAlign.start,
+    );
+
+    final composingStyle = ui.TextStyle(
+      color: baseColor,
+      fontSize: fontSize,
+      fontFamily: fontFamily,
+      decoration: TextDecoration.underline,
+      decorationColor: baseColor.withAlpha(150),
+    );
+    final composingBuilder = ui.ParagraphBuilder(overlayParagraphStyle)
+      ..pushStyle(composingStyle)
+      ..addText(comp.displayText);
+    final composingPara = composingBuilder.build();
+    composingPara.layout(const ui.ParagraphConstraints(width: double.infinity));
+    final composingWidth = composingPara.longestLine;
+
+    final remainderWidth = (linePara.longestLine - anchorX).clamp(
+      0.0,
+      double.infinity,
+    );
+
+    // Cover the area the composing text + shifted remainder will occupy, then
+    // paint the composing text and the shifted remainder over it.
+    canvas.drawRect(
+      Rect.fromLTWH(
+        screenX,
+        screenY,
+        composingWidth + remainderWidth + 2,
+        _lineHeight,
+      ),
+      Paint()..color = bgColor,
+    );
+
+    canvas.drawParagraph(composingPara, Offset(screenX, screenY));
+
+    if (clampedCol < lineText.length) {
+      final remainingText = lineText.substring(clampedCol);
+      final remainingStyle = ui.TextStyle(
+        color: baseColor,
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        fontWeight: textStyle?.fontWeight,
+      );
+      final remainingBuilder = ui.ParagraphBuilder(overlayParagraphStyle)
+        ..pushStyle(remainingStyle)
+        ..addText(remainingText);
+      final remainingPara = remainingBuilder.build();
+      remainingPara.layout(
+        const ui.ParagraphConstraints(width: double.infinity),
+      );
+      canvas.drawParagraph(
+        remainingPara,
+        Offset(screenX + composingWidth, screenY),
+      );
+    }
+
+    double caretDx = 0;
+    if (comp.displayCaret > 0) {
+      final caretBoxes = composingPara.getBoxesForRange(
+        0,
+        comp.displayCaret.clamp(0, comp.displayText.length),
+      );
+      if (caretBoxes.isNotEmpty) caretDx = caretBoxes.last.right;
+    }
+
+    _imeComposingCaretDx = caretDx;
+    _imeComposingWidth = composingWidth;
+
+    if (focusNode.hasFocus && caretBlinkController.value > 0.5) {
+      canvas.drawRect(
+        Rect.fromLTWH(screenX + caretDx, screenY, 1.5, _lineHeight),
+        _caretPainter,
+      );
+    }
+  }
 
   int getScrollbarLineNumberAtScrollOffset(double scrollOffset) {
     if (!vscrollController.hasClients || controller.lineCount == 0) {
@@ -6720,6 +7048,18 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _lineTextCache[lineIndex] = lineText;
 
     return height;
+  }
+
+  /// The top of the visual row a glyph [box] sits on, as a whole multiple of the
+  /// line height. Uses the box's vertical center, not its top: with
+  /// BoxHeightStyle.max a tall glyph (e.g. CJK) has a box top above the row
+  /// origin, so flooring the top would land a row too high; the center always
+  /// falls inside the glyph's own row, giving the right row for ASCII, CJK, and
+  /// wrapped continuation rows alike.
+  double _rowTopForBox(ui.TextBox box) {
+    final center = (box.top + box.bottom) / 2.0;
+    final rowIndex = (center / _lineHeight).floor();
+    return (rowIndex < 0 ? 0 : rowIndex) * _lineHeight;
   }
 
   double _getLineYOffset(int targetLine, bool hasActiveFolds) {
@@ -7153,7 +7493,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       );
     }
 
-    if (focusNode.hasFocus && caretBlinkController.value > 0.5) {
+    // Composition overlay (CJK pinyin/kana, etc.). Painted on top of the line
+    // text; while it is active the document caret is hidden and the overlay
+    // draws its own (composing) caret.
+    _drawImeComposition(canvas, offset, hasActiveFolds);
+
+    if (focusNode.hasFocus &&
+        caretBlinkController.value > 0.5 &&
+        controller.imeComposition == null) {
       final caretInfo = _getCaretInfo();
 
       final scroll = lineWrap ? 0.0 : _effectiveHScroll;
@@ -7528,6 +7875,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     canvas.restore();
+
+    // Keep the platform IME informed of where the caret is on screen so the
+    // composition/candidate window follows the caret instead of docking at
+    // the window's top-left corner.
+    _updateImeGeometry();
   }
 
   void _drawGutter(
@@ -10673,6 +11025,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           _selectWordAtOffset(textOffset);
         });
       } else {
+        // Acquire focus on pointer-down. Focus was previously requested only by
+        // a GestureDetector.onTap wrapper, which does not fire when the click is
+        // interpreted as a micro-drag or when the editor's own drag-selection
+        // recognizer wins the gesture arena. In those cases the selection was
+        // set (the line highlighted) but focus was never gained, so the IME was
+        // never shown and typing did nothing.
+        controller.focusNode?.requestFocus();
         _dtap.addPointer(event);
         _dtap.onDoubleTap = () {
           _selectWordAtOffset(textOffset);
