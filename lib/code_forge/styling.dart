@@ -861,7 +861,7 @@ class ImeComposition {
   /// distinguish between user-typed characters and IME-auto-generated characters.
   final String commitText;
 
-  ImeComposition({
+  const ImeComposition({
     required this.anchor,
     required this.displayText,
     required this.displayCaret,

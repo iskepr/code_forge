@@ -374,7 +374,7 @@ class CompoundOperationHandle {
   bool _isActive = true;
 
   CompoundOperationHandle._(this._controller)
-      : _startStackSize = _controller._undoStack.length;
+    : _startStackSize = _controller._undoStack.length;
 
   /// End the compound operation, combining all recorded edits into one.
   void end() {

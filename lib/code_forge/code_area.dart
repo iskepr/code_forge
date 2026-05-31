@@ -1689,7 +1689,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 // Enter, etc. here would edit the document a second time
                                                 // and desync from the IME (e.g. a backspaced letter
                                                 // reappearing).
-                                                if (_controller.isComposingActive) {
+                                                if (_controller
+                                                    .isComposingActive) {
                                                   return KeyEventResult.ignored;
                                                 }
                                                 final isCtrlAltPressed =
@@ -4191,6 +4192,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   bool _selectionActive = false, _isDragging = false;
   bool _draggingStartHandle = false, _draggingEndHandle = false;
   bool _showBubble = false, _draggingCHandle = false, _readOnly;
+  bool _openedLspActionFromBulbTap = false;
   bool _isDeferringLayout = false, _hasCachedHeight = false;
   bool _isCachedHeightExact = false;
   bool _caretSyncAfterLayoutScheduled = false;
@@ -8043,7 +8045,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
               ),
         );
 
-        if (lspActionNotifier.value != null && lspConfig != null) {
+        if (lspConfig != null && lspActionNotifier.value != null) {
           final actions = lspActionNotifier.value!.cast<Map<String, dynamic>>();
           if (actions.any((item) {
             try {
@@ -8062,6 +8064,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
               return false;
             }
           })) {
+            final lineText = controller.getLineText(i);
+            final hasLeadingIndent = _measureLeadingIndentColumns(lineText) > 0;
             final icon = Icons.lightbulb_outline;
             final actionBulbPainter = TextPainter(
               text: TextSpan(
@@ -8077,17 +8081,35 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
             );
             actionBulbPainter.layout();
 
-            final bulbX = isRTL
-                ? (isMobile
-                      ? offset.dx + size.width - actionBulbPainter.width - 4
-                      : offset.dx + size.width - _gutterWidth + 4)
-                : (isMobile
-                      ? offset.dx +
-                            _gutterWidth -
-                            actionBulbPainter.width -
-                            (baseLineNumberStyle.fontSize ?? 14) +
-                            4
-                      : offset.dx + 4);
+            final contentStartX = isRTL
+                ? offset.dx +
+                      size.width -
+                      _gutterWidth -
+                      (innerPadding?.right ?? 0) -
+                      _effectiveHScroll
+                : offset.dx +
+                      _gutterWidth +
+                      (innerPadding?.left ?? 0) -
+                      (lineWrap ? 0 : _effectiveHScroll);
+
+            final bulbX = hasLeadingIndent
+                ? (isRTL
+                      ? contentStartX - actionBulbPainter.width - 4
+                      : contentStartX + 4)
+                : (isRTL
+                      ? (isMobile
+                            ? offset.dx +
+                                  size.width -
+                                  actionBulbPainter.width -
+                                  4
+                            : offset.dx + size.width - _gutterWidth + 4)
+                      : (isMobile
+                            ? offset.dx +
+                                  _gutterWidth -
+                                  actionBulbPainter.width -
+                                  (baseLineNumberStyle.fontSize ?? 14) +
+                                  4
+                            : offset.dx + 4));
             final bulbY =
                 offset.dy +
                 (innerPadding?.top ?? 0) +
@@ -10910,6 +10932,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     if (event is PointerDownEvent && event.buttons == kPrimaryButton) {
+      _openedLspActionFromBulbTap = false;
       _onetap.addPointer(event);
       try {
         suggestionNotifier.value = null;
@@ -10924,6 +10947,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       if (lspActionNotifier.value != null && _actionBulbRects.isNotEmpty) {
         for (final entry in _actionBulbRects.entries) {
           if (entry.value.contains(localPosition)) {
+            _openedLspActionFromBulbTap = true;
             suggestionNotifier.value = null;
             lspActionOffsetNotifier.value = event.localPosition;
             return;
@@ -10968,6 +10992,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         };
 
         _onetap.onTap = () {
+          if (_openedLspActionFromBulbTap) {
+            _openedLspActionFromBulbTap = false;
+            return;
+          }
+
           if (hoverNotifier.value != null && !isHoveringPopup.value) {
             hoverNotifier.value = null;
             hoverContentNotifier.value = null;
@@ -11040,6 +11069,11 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         _dragStartOffset = textOffset;
         final isAltClick = HardwareKeyboard.instance.isAltPressed;
         _onetap.onTap = () {
+          if (_openedLspActionFromBulbTap) {
+            _openedLspActionFromBulbTap = false;
+            return;
+          }
+
           if (suggestionNotifier.value != null) {
             suggestionNotifier.value = null;
           }
@@ -11228,6 +11262,14 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   MouseCursor get cursor {
+    if (_actionBulbRects.isNotEmpty) {
+      for (final rect in _actionBulbRects.values) {
+        if (rect.contains(_currentPosition)) {
+          return SystemMouseCursors.click;
+        }
+      }
+    }
+
     final isInGutter = isRTL
         ? _currentPosition.dx > size.width - _gutterWidth
         : _currentPosition.dx >= 0 && _currentPosition.dx < _gutterWidth;
@@ -11256,14 +11298,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       final foldRange = _getFoldRangeAtLine(hoveredLine);
       if (foldRange != null && foldRange.endIndex > foldRange.startIndex) {
         return SystemMouseCursors.click;
-      }
-
-      if (_actionBulbRects.isNotEmpty) {
-        for (final rect in _actionBulbRects.values) {
-          if (rect.contains(_currentPosition)) {
-            return SystemMouseCursors.click;
-          }
-        }
       }
 
       return MouseCursor.defer;
