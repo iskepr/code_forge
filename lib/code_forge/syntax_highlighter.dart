@@ -50,6 +50,8 @@ class SyntaxHighlighter {
   final Map<int, HighlightedLine> _grammarCache = {}, _mergedCache = {};
   final Map<int, List<SemanticWordSpan>> _lineSemanticSpans = {};
   final Map<String, TextSpan?> _lineSpanCache = {};
+  Future<void>? _preHighlightInFlight;
+  int _preHighlightInFlightVersion = -1;
   bool _isEditing = false;
   int _version = 0;
   int _documentVersion = 0;
@@ -272,7 +274,46 @@ class SyntaxHighlighter {
   }
 
   TextSpan? getLineSpan(int lineIndex, String lineText) {
-    if (_lineSpanCache.containsKey(lineText)) {
+    final mergedCache = _mergedCache[lineIndex];
+    if (mergedCache != null &&
+        mergedCache.version == _version &&
+        mergedCache.text == lineText) {
+      return mergedCache.span;
+    }
+
+    final grammarCache = _grammarCache[lineIndex];
+    final cachedGrammarSpan =
+        grammarCache != null &&
+            grammarCache.version == _version &&
+            grammarCache.text == lineText
+        ? grammarCache.span
+        : null;
+
+    final semanticSpans = _lineSemanticSpans[lineIndex];
+    if (_isEditing || semanticSpans == null || semanticSpans.isEmpty) {
+      if (_lineSpanCache.containsKey(lineText)) {
+        return _lineSpanCache[lineText];
+      }
+      if (cachedGrammarSpan != null) {
+        _lineSpanCache[lineText] = cachedGrammarSpan;
+        return cachedGrammarSpan;
+      }
+    }
+
+    if (cachedGrammarSpan != null) {
+      final mergedSpan = _mergeGrammarAndSemantic(
+        lineText,
+        cachedGrammarSpan,
+        semanticSpans,
+      );
+
+      _lineSpanCache[lineText] = mergedSpan;
+      _mergedCache[lineIndex] = HighlightedLine(lineText, mergedSpan, _version);
+      return mergedSpan;
+    }
+
+    if (_lineSpanCache.containsKey(lineText) &&
+        (semanticSpans == null || semanticSpans.isEmpty || _isEditing)) {
       return _lineSpanCache[lineText];
     }
 
@@ -283,7 +324,6 @@ class SyntaxHighlighter {
       return grammarSpan;
     }
 
-    final semanticSpans = _lineSemanticSpans[lineIndex];
     final mergedSpan = _mergeGrammarAndSemantic(
       lineText,
       grammarSpan,
@@ -727,6 +767,37 @@ class SyntaxHighlighter {
     int endLine,
     String Function(int) getLineText,
   ) async {
+    if (_preHighlightInFlight != null &&
+        _preHighlightInFlightVersion == _version) {
+      return _preHighlightInFlight;
+    }
+
+    final requestVersion = _version;
+    _preHighlightInFlightVersion = requestVersion;
+    final future = _preHighlightLinesInternal(
+      startLine,
+      endLine,
+      getLineText,
+      requestVersion,
+    );
+    _preHighlightInFlight = future;
+
+    try {
+      await future;
+    } finally {
+      if (identical(_preHighlightInFlight, future)) {
+        _preHighlightInFlight = null;
+        _preHighlightInFlightVersion = -1;
+      }
+    }
+  }
+
+  Future<void> _preHighlightLinesInternal(
+    int startLine,
+    int endLine,
+    String Function(int) getLineText,
+    int requestVersion,
+  ) async {
     _pruneCachesForViewport(startLine, endLine);
 
     final linesToProcess = <int, String>{};
@@ -744,7 +815,9 @@ class SyntaxHighlighter {
     if (linesToProcess.isEmpty) return;
 
     if (linesToProcess.length < 50) {
+      if (requestVersion != _version) return;
       for (final entry in linesToProcess.entries) {
+        if (requestVersion != _version) return;
         final span = _highlightLine(entry.value);
         _grammarCache[entry.key] = HighlightedLine(entry.value, span, _version);
       }
@@ -763,13 +836,15 @@ class SyntaxHighlighter {
       ),
     );
 
+    if (requestVersion != _version) return;
+
     for (final entry in results.entries) {
       final spanData = entry.value;
       final textSpan = spanData != null ? _spanDataToTextSpan(spanData) : null;
       _grammarCache[entry.key] = HighlightedLine(
         linesToProcess[entry.key]!,
         textSpan,
-        _version,
+        requestVersion,
       );
     }
 

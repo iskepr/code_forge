@@ -424,3 +424,6 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
 ## 10.3.0
   - FIX: [#45](https://github.com/heckmon/code_forge/issues/45)
   - FIX: Code action bulb icon placement issue.
+
+## 10.4.0
+  - FIX: Fixed focus bug in mobile.

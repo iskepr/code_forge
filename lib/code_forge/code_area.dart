@@ -26,6 +26,8 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 
 const int kSemanticTokenViewportPaddingLines = 1500;
+const int kExactWrappedHeightThreshold = 512;
+const int kWrappedHeightSampleSize = 64;
 // Characters treated as part of a "word" for double-click selection, word-prefix
 // extraction, and hover. Covers Latin/digits/underscore (\w), Arabic and Hebrew,
 // and CJK: Hiragana (3040-309F), Katakana (30A0-30FF), CJK Extension A
@@ -577,7 +579,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
         // below). Without show() the desktop IME never becomes the active input
         // client: on macOS this blocks text input entirely, and on Windows it
         // leaves the editor able to highlight lines but unable to accept typing.
-        _connection!.show();
+        if (!_isMobile) _connection!.show();
         // Seed the platform with the IME projection (the small window around the
         // caret) rather than the full document. The controller's input handlers
         // operate in projection coordinates, so seeding the full text leaves the
@@ -768,10 +770,11 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
 
         _connection!.setEditingState(
           _controller.currentTextEditingValue ??
-              TextEditingValue(text: _controller.text),
+              TextEditingValue(
+                text: _controller.text,
+                selection: _controller.selection,
+              ),
         );
-
-        if (_isMobile) _focusNode.requestFocus();
 
         _controller.connection = _connection;
       }
@@ -6940,9 +6943,16 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
 
       if (hasActiveFolds) {
-        for (int i = 0; i < lineCount; i++) {
-          if (_isLineFolded(i)) continue;
-          visibleHeight += _getWrappedLineHeight(i);
+        final foldedCount = _countFoldedLinesBefore(lineCount);
+        final visibleLineCount = (lineCount - foldedCount).clamp(0, lineCount);
+
+        if (lineCount > kExactWrappedHeightThreshold) {
+          visibleHeight = _estimateWrappedHeight(visibleLineCount);
+        } else {
+          for (int i = 0; i < lineCount; i++) {
+            if (_isLineFolded(i)) continue;
+            visibleHeight += _getWrappedLineHeight(i);
+          }
         }
       } else {
         final canReuseExactWrappedHeight =
@@ -6953,6 +6963,9 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
         if (canReuseExactWrappedHeight) {
           visibleHeight = _cachedTotalHeight;
+        } else if (lineCount > kExactWrappedHeightThreshold) {
+          visibleHeight = _estimateWrappedHeight(lineCount);
+          _isCachedHeightExact = false;
         } else {
           for (int i = 0; i < lineCount; i++) {
             visibleHeight += _getWrappedLineHeight(i);
@@ -7050,6 +7063,42 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _lineTextCache[lineIndex] = lineText;
 
     return height;
+  }
+
+  double _estimateWrappedHeight(int visibleLineCount) {
+    if (visibleLineCount <= 0) return 0.0;
+
+    final sampleCount = visibleLineCount < kWrappedHeightSampleSize
+        ? visibleLineCount
+        : kWrappedHeightSampleSize;
+
+    if (sampleCount <= 0) {
+      return visibleLineCount * _lineHeight;
+    }
+
+    final step = (visibleLineCount / sampleCount).ceil().clamp(
+      1,
+      visibleLineCount,
+    );
+    double sampledHeight = 0.0;
+    int measured = 0;
+
+    for (
+      int i = 0;
+      i < controller.lineCount && measured < sampleCount;
+      i += step
+    ) {
+      if (_hasActiveFolds && _isLineFolded(i)) continue;
+      sampledHeight += _getWrappedLineHeight(i);
+      measured++;
+    }
+
+    if (measured == 0) {
+      return visibleLineCount * _lineHeight;
+    }
+
+    final averageHeight = sampledHeight / measured;
+    return averageHeight * visibleLineCount;
   }
 
   /// The top of the visual row a glyph [box] sits on, as a whole multiple of the
@@ -7201,6 +7250,13 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     _pruneViewportCaches(firstVisibleLine, lastVisibleLine);
     _scheduleVisibleSemanticTokens(firstVisibleLine, lastVisibleLine);
+    unawaited(
+      _syntaxHighlighter.preHighlightLines(
+        firstVisibleLine,
+        lastVisibleLine,
+        controller.getLineText,
+      ),
+    );
 
     _drawSearchHighlights(
       canvas,
@@ -10932,6 +10988,19 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     }
 
     if (event is PointerDownEvent && event.buttons == kPrimaryButton) {
+      if (controller.connection == null ||
+          !controller.connection!.attached ||
+          !focusNode.hasFocus) {
+        focusNode.requestFocus();
+        if (focusNode.hasFocus) {
+          controller.connection!.setEditingState(
+            TextEditingValue(
+              text: controller.text,
+              selection: controller.selection,
+            ),
+          );
+        }
+      }
       _openedLspActionFromBulbTap = false;
       _onetap.addPointer(event);
       try {
@@ -11186,7 +11255,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       if (!_isDragging && isMobile && !_selectionActive) {
         controller.selection = TextSelection.collapsed(offset: textOffset);
-        controller.connection?.show();
+        if (controller.connection?.attached ?? false)
+          controller.connection?.show();
       }
 
       _draggingStartHandle = false;
