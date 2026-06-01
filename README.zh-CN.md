@@ -45,9 +45,6 @@
 >
 > code_forge **不支持** Flutter Web，因为核心功能依赖 `dart:io`。如需 Web 支持，请使用 [code_forge_web](https://pub.dev/packages/code_forge_web)。
 
-## 10.2.0 更新内容
-- 修复: [#45](https://github.com/heckmon/code_forge/issues/45)
-
 ## 为什么选择 CodeForge?
 
 **CodeForge** 是面向开发者的新一代代码编辑器组件。无论你在做 IDE、代码片段查看器，还是教学平台，CodeForge 都能提供强大能力。
@@ -79,7 +76,7 @@
 
 ```yaml
 dependencies:
-  code_forge: ^10.2.0
+  code_forge: ^10.4.0
 ```
 
 3. 在 `main()` 中添加初始化:
