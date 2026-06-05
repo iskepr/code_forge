@@ -127,11 +127,11 @@ class CodeForge extends StatefulWidget {
   final ScrollController? horizontalScrollController;
 
   /// Keyboard shortcuts used by the [CodeForge] editor.<br>
-  /// Most of the keyboard shortcuts, except the core operations like cut, copy, paste, select all, undo, redo 
+  /// Most of the keyboard shortcuts, except the core operations like cut, copy, paste, select all, undo, redo
   /// can be modified by editing the hardcoded shortcuts defined in the [CodeForgeKeyboardShotcuts] class.<br>
   /// <br>
   /// eg:
-  /// 
+  ///
   /// ```dart
   /// // Here the line duplicate shortcut `Ctrl + D` has beeb overriden by `Ctrl + B`.
   /// CodeForge(
@@ -140,7 +140,7 @@ class CodeForge extends StatefulWidget {
   ///   ),
   /// )
   /// ```
-  /// 
+  ///
   /// **Note: There is no exception handling implemented to prevent the usage of same shortcut keys on multiple operations.
   /// Using the same shortcut on multiple operations may causes undefined behaviour.**
   final CodeForgeKeyboardShortcuts keyboardShotcuts;
@@ -1678,174 +1678,288 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.ignored;
                                                 }
 
-                                                final shrtCt = widget.keyboardShotcuts;
-                                                if (shrtCt.duplicate.accepts(event, HardwareKeyboard.instance)) {
+                                                final shrtCt =
+                                                    widget.keyboardShotcuts;
+                                                if (shrtCt.duplicate.accepts(
+                                                  event,
+                                                  HardwareKeyboard.instance,
+                                                )) {
                                                   if (!_readOnly) {
                                                     _controller.duplicateLine();
                                                     _commonKeyFunctions();
                                                   }
                                                   return KeyEventResult.handled;
-                                                } 
-
-                                                if(shrtCt.deletWordBackward.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (!_readOnly) {
-                                                      _deleteWordBackward();
-                                                      _commonKeyFunctions();
-                                                    }
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.deletWordForward.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (!_readOnly) {
-                                                      _deleteWordForward();
-                                                      _commonKeyFunctions();
-                                                    }
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveCursorToPreviousWord.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (widget.textDirection == TextDirection.rtl) {
-                                                      _moveWordRight(false);
-                                                    } else {
-                                                      _moveWordLeft(false);
-                                                    }
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveCursorToNextWord.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (widget.textDirection == TextDirection.rtl) {
-                                                      _moveWordLeft(false);
-                                                    } else {
-                                                      _moveWordRight(false);
-                                                    }
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.lspCodeActions.accepts(event, HardwareKeyboard.instance)) {
-                                                    (() async {
-                                                      _suggestionNotifier.value = null;
-                                                      await _fetchCodeActionsForCurrentPosition();
-                                                    })();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.jumpToDocumentStart.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressDocumentHomeKey(
-                                                      isShiftPressed:false
-                                                    );
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.jumpToDocumentStartAndSelectText.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressDocumentHomeKey(
-                                                      isShiftPressed:true
-                                                    );
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.jumpToDocumentEnd.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressDocumentEndKey(
-                                                      isShiftPressed:false,
-                                                    );
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.jumpToDocumentEndAndSelectText.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressDocumentEndKey(
-                                                      isShiftPressed:true,
-                                                    );
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.showFindBar.accepts(event, HardwareKeyboard.instance)) {
-                                                    final isAlt = HardwareKeyboard.instance.isAltPressed;
-                                                    _findController.isActive = true;
-                                                    _findController.isReplaceMode = isAlt;
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.showFindAndReplaceBar.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (!HardwareKeyboard.instance.isMetaPressed) {
-                                                      _findController.isActive = true;
-                                                      _findController.isReplaceMode = true;
-
-                                                      return KeyEventResult.handled;
-                                                    }
-                                                }
-                                                
-                                                if(shrtCt.lspSignatureHelp.accepts(event, HardwareKeyboard.instance)) {
-                                                    setState(() {
-                                                      _isSignatureInvoked = true;
-                                                    });
-                                                    (() async => await _controller.callSignatureHelp())();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.shiftLineUp.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.moveLineUp();
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.shiftLineDown.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.moveLineDown();
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionToPreviousWord.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (widget.textDirection == TextDirection.rtl) {
-                                                      _moveWordRight(true);
-                                                    } else {
-                                                      _moveWordLeft(true);
-                                                    }
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionToNextWord.accepts(event, HardwareKeyboard.instance)) {
-                                                    if (widget.textDirection == TextDirection.rtl) {
-                                                      _moveWordLeft(true);
-                                                    } else {
-                                                      _moveWordRight(true);
-                                                    }
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionForward.accepts(event, HardwareKeyboard.instance)) {  
-                                                    _handleArrowRight(true);
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionBackward.accepts(event, HardwareKeyboard.instance)) {
-                                                    _handleArrowLeft(true);
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionUpward.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressUpArrowKey(isShiftPressed:true);
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
-
-                                                }
-                                                
-                                                if(shrtCt.moveSelectionDownward.accepts(event, HardwareKeyboard.instance)) {
-                                                    _controller.pressDownArrowKey(isShiftPressed:true);
-                                                    _commonKeyFunctions();
-                                                    return KeyEventResult.handled;
                                                 }
 
-                                                if (shrtCt.selectToLineStart.accepts(event, HardwareKeyboard.instance)) {
+                                                if (shrtCt.deletWordBackward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (!_readOnly) {
+                                                    _deleteWordBackward();
+                                                    _commonKeyFunctions();
+                                                  }
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.deletWordForward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (!_readOnly) {
+                                                    _deleteWordForward();
+                                                    _commonKeyFunctions();
+                                                  }
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt
+                                                    .moveCursorToPreviousWord
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordRight(false);
+                                                  } else {
+                                                    _moveWordLeft(false);
+                                                  }
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.moveCursorToNextWord
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordLeft(false);
+                                                  } else {
+                                                    _moveWordRight(false);
+                                                  }
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.lspCodeActions
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  (() async {
+                                                    _suggestionNotifier.value =
+                                                        null;
+                                                    await _fetchCodeActionsForCurrentPosition();
+                                                  })();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.jumpToDocumentStart
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller
+                                                      .pressDocumentHomeKey(
+                                                        isShiftPressed: false,
+                                                      );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt
+                                                    .jumpToDocumentStartAndSelectText
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller
+                                                      .pressDocumentHomeKey(
+                                                        isShiftPressed: true,
+                                                      );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.jumpToDocumentEnd
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller
+                                                      .pressDocumentEndKey(
+                                                        isShiftPressed: false,
+                                                      );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt
+                                                    .jumpToDocumentEndAndSelectText
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller
+                                                      .pressDocumentEndKey(
+                                                        isShiftPressed: true,
+                                                      );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.showFindBar.accepts(
+                                                  event,
+                                                  HardwareKeyboard.instance,
+                                                )) {
+                                                  final isAlt = HardwareKeyboard
+                                                      .instance
+                                                      .isAltPressed;
+                                                  _findController.isActive =
+                                                      true;
+                                                  _findController
+                                                          .isReplaceMode =
+                                                      isAlt;
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.showFindAndReplaceBar
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (!HardwareKeyboard
+                                                      .instance
+                                                      .isMetaPressed) {
+                                                    _findController.isActive =
+                                                        true;
+                                                    _findController
+                                                            .isReplaceMode =
+                                                        true;
+
+                                                    return KeyEventResult
+                                                        .handled;
+                                                  }
+                                                }
+
+                                                if (shrtCt.lspSignatureHelp
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  setState(() {
+                                                    _isSignatureInvoked = true;
+                                                  });
+                                                  (() async => await _controller
+                                                      .callSignatureHelp())();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.shiftLineUp.accepts(
+                                                  event,
+                                                  HardwareKeyboard.instance,
+                                                )) {
+                                                  _controller.moveLineUp();
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.shiftLineDown
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller.moveLineDown();
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt
+                                                    .moveSelectionToPreviousWord
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordRight(true);
+                                                  } else {
+                                                    _moveWordLeft(true);
+                                                  }
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt
+                                                    .moveSelectionToNextWord
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  if (widget.textDirection ==
+                                                      TextDirection.rtl) {
+                                                    _moveWordLeft(true);
+                                                  } else {
+                                                    _moveWordRight(true);
+                                                  }
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.moveSelectionForward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _handleArrowRight(true);
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.moveSelectionBackward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _handleArrowLeft(true);
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.moveSelectionUpward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller.pressUpArrowKey(
+                                                    isShiftPressed: true,
+                                                  );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.moveSelectionDownward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  _controller.pressDownArrowKey(
+                                                    isShiftPressed: true,
+                                                  );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.selectToLineStart
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
                                                   _controller.pressHomeKey(
                                                     isShiftPressed: true,
                                                   );
@@ -1853,7 +1967,11 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.handled;
                                                 }
 
-                                                if (shrtCt.selectToLineEnd.accepts(event, HardwareKeyboard.instance)) {
+                                                if (shrtCt.selectToLineEnd
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
                                                   _controller.pressEndKey(
                                                     isShiftPressed: true,
                                                   );
@@ -1861,61 +1979,164 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   return KeyEventResult.handled;
                                                 }
 
-                                                if (shrtCt.extendMutliCursorDownward.accepts(event, HardwareKeyboard.instance)) {
-                                                  final selection = _controller.selection;
-                                                  final primaryLine = _controller.getLineAtOffset(selection.extentOffset);
+                                                if (shrtCt
+                                                    .extendMutliCursorDownward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  final selection =
+                                                      _controller.selection;
+                                                  final primaryLine =
+                                                      _controller
+                                                          .getLineAtOffset(
+                                                            selection
+                                                                .extentOffset,
+                                                          );
 
-                                                  final anchorLine = _controller.hasMultiCursors
-                                                      ? _controller.multiCursors.map((c) => c.line).reduce((a, b) => a > b ? a : b)
+                                                  final anchorLine =
+                                                      _controller
+                                                          .hasMultiCursors
+                                                      ? _controller.multiCursors
+                                                            .map((c) => c.line)
+                                                            .reduce(
+                                                              (a, b) =>
+                                                                  a > b ? a : b,
+                                                            )
                                                       : primaryLine;
 
-                                                  final foldAtAnchor = _controller.getFoldRangeAtCurrentLine(anchorLine);
-                                                  int targetLine = (foldAtAnchor != null && foldAtAnchor.isFolded)
-                                                      ? foldAtAnchor.endIndex + 1
+                                                  final foldAtAnchor = _controller
+                                                      .getFoldRangeAtCurrentLine(
+                                                        anchorLine,
+                                                      );
+                                                  int targetLine =
+                                                      (foldAtAnchor != null &&
+                                                          foldAtAnchor.isFolded)
+                                                      ? foldAtAnchor.endIndex +
+                                                            1
                                                       : anchorLine + 1;
 
-                                                  while (targetLine < _controller.lineCount && _controller.isLineInFoldedRegion(targetLine)) {
-                                                    final foldStart = _controller.getFoldStartForLine(targetLine);
+                                                  while (targetLine <
+                                                          _controller
+                                                              .lineCount &&
+                                                      _controller
+                                                          .isLineInFoldedRegion(
+                                                            targetLine,
+                                                          )) {
+                                                    final foldStart = _controller
+                                                        .getFoldStartForLine(
+                                                          targetLine,
+                                                        );
                                                     if (foldStart != null) {
-                                                      final fold = _controller.foldings[foldStart] ?? FoldRange(targetLine, targetLine);
-                                                      targetLine = fold.endIndex + 1;
+                                                      final fold =
+                                                          _controller
+                                                              .foldings[foldStart] ??
+                                                          FoldRange(
+                                                            targetLine,
+                                                            targetLine,
+                                                          );
+                                                      targetLine =
+                                                          fold.endIndex + 1;
                                                     } else {
                                                       targetLine++;
                                                     }
                                                   }
 
-                                                  if (targetLine < _controller.lineCount) {
-                                                    final lineStart = _controller.getLineStartOffset(primaryLine);
-                                                    final column = selection.extentOffset - lineStart;
-                                                    final nextLineText = _controller.getLineText(targetLine);
-                                                    final newColumn = column.clamp(0, nextLineText.length);
-                                                    _controller.addMultiCursor(targetLine, newColumn);
+                                                  if (targetLine <
+                                                      _controller.lineCount) {
+                                                    final lineStart =
+                                                        _controller
+                                                            .getLineStartOffset(
+                                                              primaryLine,
+                                                            );
+                                                    final column =
+                                                        selection.extentOffset -
+                                                        lineStart;
+                                                    final nextLineText =
+                                                        _controller.getLineText(
+                                                          targetLine,
+                                                        );
+                                                    final newColumn = column
+                                                        .clamp(
+                                                          0,
+                                                          nextLineText.length,
+                                                        );
+                                                    _controller.addMultiCursor(
+                                                      targetLine,
+                                                      newColumn,
+                                                    );
                                                   }
 
                                                   return KeyEventResult.handled;
                                                 }
 
-                                                if (shrtCt.extendMutliCursorUpward.accepts(event, HardwareKeyboard.instance)) {
-                                                  final selection = _controller.selection;
-                                                  final primaryLine = _controller.getLineAtOffset(selection.extentOffset);
+                                                if (shrtCt
+                                                    .extendMutliCursorUpward
+                                                    .accepts(
+                                                      event,
+                                                      HardwareKeyboard.instance,
+                                                    )) {
+                                                  final selection =
+                                                      _controller.selection;
+                                                  final primaryLine =
+                                                      _controller
+                                                          .getLineAtOffset(
+                                                            selection
+                                                                .extentOffset,
+                                                          );
 
-                                                  final anchorLine = _controller.hasMultiCursors
-                                                      ? _controller.multiCursors.map((c) => c.line).reduce((a, b) => a < b ? a : b)
+                                                  final anchorLine =
+                                                      _controller
+                                                          .hasMultiCursors
+                                                      ? _controller.multiCursors
+                                                            .map((c) => c.line)
+                                                            .reduce(
+                                                              (a, b) =>
+                                                                  a < b ? a : b,
+                                                            )
                                                       : primaryLine;
 
-                                                  int targetLine = anchorLine - 1;
-                                                  while (targetLine > 0 && _controller.isLineInFoldedRegion(targetLine)) {
+                                                  int targetLine =
+                                                      anchorLine - 1;
+                                                  while (targetLine > 0 &&
+                                                      _controller
+                                                          .isLineInFoldedRegion(
+                                                            targetLine,
+                                                          )) {
                                                     targetLine--;
                                                   }
-                                                  if (_controller.isLineInFoldedRegion(targetLine)) {
-                                                    targetLine = _controller.getFoldStartForLine(targetLine) ?? 0;
+                                                  if (_controller
+                                                      .isLineInFoldedRegion(
+                                                        targetLine,
+                                                      )) {
+                                                    targetLine =
+                                                        _controller
+                                                            .getFoldStartForLine(
+                                                              targetLine,
+                                                            ) ??
+                                                        0;
                                                   }
 
-                                                  final lineStart = _controller.getLineStartOffset(primaryLine);
-                                                  final column = selection.extentOffset - lineStart;
-                                                  final prevLineText = _controller.getLineText(targetLine);
-                                                  final newColumn = column.clamp(0, prevLineText.length);
-                                                  _controller.addMultiCursor(targetLine, newColumn);
+                                                  final lineStart = _controller
+                                                      .getLineStartOffset(
+                                                        primaryLine,
+                                                      );
+                                                  final column =
+                                                      selection.extentOffset -
+                                                      lineStart;
+                                                  final prevLineText =
+                                                      _controller.getLineText(
+                                                        targetLine,
+                                                      );
+                                                  final newColumn = column
+                                                      .clamp(
+                                                        0,
+                                                        prevLineText.length,
+                                                      );
+                                                  _controller.addMultiCursor(
+                                                    targetLine,
+                                                    newColumn,
+                                                  );
 
                                                   return KeyEventResult.handled;
                                                 }
@@ -2122,7 +2343,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                     }
                                                   }
 
-
                                                   if (isCtrlPressed) {
                                                     switch (event.logicalKey) {
                                                       case LogicalKeyboardKey
@@ -2244,14 +2464,16 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   }
 
                                                   if (isShiftPressed &&
-                                                    !isCtrlPressed &&
-                                                    event.logicalKey == LogicalKeyboardKey.tab
-                                                  ) {
+                                                      !isCtrlPressed &&
+                                                      event.logicalKey ==
+                                                          LogicalKeyboardKey
+                                                              .tab) {
                                                     if (!_readOnly) {
                                                       _controller.unindent();
                                                       _commonKeyFunctions();
-                                                      }
-                                                      return KeyEventResult.handled;
+                                                    }
+                                                    return KeyEventResult
+                                                        .handled;
                                                   }
 
                                                   switch (event.logicalKey) {
@@ -2550,7 +2772,8 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 onHoverSetByTap: () {
                                                   _hoverSetByTap = true;
                                                 },
-                                                gutterBuilder: widget.gutterBuilder
+                                                gutterBuilder:
+                                                    widget.gutterBuilder,
                                               ),
                                             );
                                           },
@@ -7997,7 +8220,10 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final firstVisibleLine = _findVisibleLineByYPosition(
       viewTop,
     ).clamp(0, lineCount - 1);
-    final firstVisibleLineY = _getLineYOffset(firstVisibleLine, _hasActiveFolds);
+    final firstVisibleLineY = _getLineYOffset(
+      firstVisibleLine,
+      _hasActiveFolds,
+    );
 
     _actionBulbRects.clear();
 
@@ -8043,25 +8269,31 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final lineNumberStyle = baseLineNumberStyle!.copyWith(
           color: lineNumberColor,
         );
-        
+
         String gutterText;
 
-        final builderText = gutterBuilder?.builder.call(i + 1, controller.getLineText(i));
+        final builderText = gutterBuilder?.builder.call(
+          i + 1,
+          controller.getLineText(i),
+        );
         final builderWidth = (builderText?.length ?? 0) * 0.6 * _gutterPadding;
 
-        if (builderText == null){
+        if (builderText == null) {
           gutterText = indexTracker.toString();
           indexTracker++;
         } else {
           if (gutterBuilder?.includeReplacedIndex ?? false) {
             gutterText = builderText;
-            indexTracker++;  
+            indexTracker++;
           } else {
             gutterText = builderText;
           }
 
           if (builderWidth >= _gutterWidth) {
-            _gutterWidth = (enableFolding ? (_textStyle?.fontSize ?? 14.0) + 4 : 0) + _gutterPadding + builderWidth;
+            _gutterWidth =
+                (enableFolding ? (_textStyle?.fontSize ?? 14.0) + 4 : 0) +
+                _gutterPadding +
+                builderWidth;
           }
         }
 
@@ -8074,15 +8306,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         canvas.drawParagraph(
           lineNumPara,
           offset +
-            Offset(
-              (isRTL ? size.width - _gutterWidth : 0) +
-                (_gutterWidth - numWidth) / 2 -
-                (enableFolding ? (lineNumberStyle.fontSize ?? 14) / 2 : 0),
-              (innerPadding?.top ?? 0) +
-                contentTop +
-                visualYOffset -
-                vscrollController.offset,
-            ),
+              Offset(
+                (isRTL ? size.width - _gutterWidth : 0) +
+                    (_gutterWidth - numWidth) / 2 -
+                    (enableFolding ? (lineNumberStyle.fontSize ?? 14) / 2 : 0),
+                (innerPadding?.top ?? 0) +
+                    contentTop +
+                    visualYOffset -
+                    vscrollController.offset,
+              ),
         );
 
         if (lspConfig != null && lspActionNotifier.value != null) {

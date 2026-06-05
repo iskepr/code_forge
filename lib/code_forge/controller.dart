@@ -939,7 +939,10 @@ class CodeForgeController implements DeltaTextInputClient {
 
     final primaryIndex = uniqueOffsets.indexOf(primaryOffset);
     final primaryShift = primaryOffset > 0 ? primaryIndex + 1 : 0;
-    final primaryNewOffset = (primaryOffset - primaryShift).clamp(0, _rope.length);
+    final primaryNewOffset = (primaryOffset - primaryShift).clamp(
+      0,
+      _rope.length,
+    );
     _selection = TextSelection.collapsed(offset: primaryNewOffset);
 
     _multiCursors.clear();
@@ -998,12 +1001,17 @@ class CodeForgeController implements DeltaTextInputClient {
     compound?.end();
 
     final primaryIndex = uniqueOffsets.indexOf(primaryOffset);
-    final primaryNewOffset = (primaryOffset + (primaryIndex + 1) * textToInsert.length).clamp(0, _rope.length);
+    final primaryNewOffset =
+        (primaryOffset + (primaryIndex + 1) * textToInsert.length).clamp(
+          0,
+          _rope.length,
+        );
     _selection = TextSelection.collapsed(offset: primaryNewOffset);
 
     _multiCursors.clear();
     for (int k = 0; k < uniqueOffsets.length; k++) {
-      final newOffset = (uniqueOffsets[k] + (k + 1) * textToInsert.length).clamp(0, _rope.length);
+      final newOffset = (uniqueOffsets[k] + (k + 1) * textToInsert.length)
+          .clamp(0, _rope.length);
       if (newOffset == primaryNewOffset) continue;
       final newLine = _rope.getLineAtOffset(newOffset);
       final newLineStart = _rope.getLineStartOffset(newLine);
