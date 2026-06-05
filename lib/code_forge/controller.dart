@@ -346,7 +346,6 @@ class CodeForgeController implements DeltaTextInputClient {
       _lspReady = true;
       _cclsForcedRefreshAttempted = false;
 
-      // ccls-style semantic highlight is push-only and often emitted after save.
       if (lspConfig!.capabilities.semanticHighlighting &&
           !lspConfig!.supportsSemanticTokensPull) {
         await lspConfig!.updateDocument(openedFile!, text);
@@ -373,8 +372,6 @@ class CodeForgeController implements DeltaTextInputClient {
       _lspTypingTimer = Timer(_lspTypingDebounce, () async {
         if (_isDisposed || !_lspReady || openedFile == null) return;
 
-        // Keep ccls (push-only semantic server) in lockstep with immediate
-        // document changes; this mirrors the pre-refactor behavior from main.
         if (!(lspConfig?.supportsSemanticTokensPull ?? true)) {
           await lspConfig!.updateDocument(openedFile!, currentText);
         }
@@ -813,7 +810,8 @@ class CodeForgeController implements DeltaTextInputClient {
   /// When [isShiftPressed] is true the secondary cursors are cleared.
   void moveMultiCursorsUp({bool isShiftPressed = false}) {
     if (_multiCursors.isEmpty) return;
-    if (isShiftPressed) {
+    final isAltPressed = HardwareKeyboard.instance.isAltPressed;
+    if (isShiftPressed && !isAltPressed) {
       clearMultiCursors();
       return;
     }
@@ -825,11 +823,11 @@ class CodeForgeController implements DeltaTextInputClient {
         continue;
       }
       int targetLine = cursorLine - 1;
-      while (targetLine > 0 && _isLineInFoldedRegion(targetLine)) {
+      while (targetLine > 0 && isLineInFoldedRegion(targetLine)) {
         targetLine--;
       }
-      if (_isLineInFoldedRegion(targetLine)) {
-        targetLine = _getFoldStartForLine(targetLine) ?? 0;
+      if (isLineInFoldedRegion(targetLine)) {
+        targetLine = getFoldStartForLine(targetLine) ?? 0;
       }
       final prevLineText = getLineText(targetLine);
       final newChar = cursor.character.clamp(0, prevLineText.length);
@@ -844,7 +842,8 @@ class CodeForgeController implements DeltaTextInputClient {
   /// When [isShiftPressed] is true the secondary cursors are cleared.
   void moveMultiCursorsDown({bool isShiftPressed = false}) {
     if (_multiCursors.isEmpty) return;
-    if (isShiftPressed) {
+    final isAltPressed = HardwareKeyboard.instance.isAltPressed;
+    if (isShiftPressed && !isAltPressed) {
       clearMultiCursors();
       return;
     }
@@ -856,15 +855,15 @@ class CodeForgeController implements DeltaTextInputClient {
         updated.add((line: lineCount - 1, character: lastLineText.length));
         continue;
       }
-      final foldAtCurrent = _getFoldRangeAtCurrentLine(cursorLine);
+      final foldAtCurrent = getFoldRangeAtCurrentLine(cursorLine);
       int targetLine;
       if (foldAtCurrent != null && foldAtCurrent.isFolded) {
         targetLine = foldAtCurrent.endIndex + 1;
       } else {
         targetLine = cursorLine + 1;
       }
-      while (targetLine < lineCount && _isLineInFoldedRegion(targetLine)) {
-        final foldStart = _getFoldStartForLine(targetLine);
+      while (targetLine < lineCount && isLineInFoldedRegion(targetLine)) {
+        final foldStart = getFoldStartForLine(targetLine);
         if (foldStart != null) {
           final fold = foldings[foldStart] ?? FoldRange(targetLine, targetLine);
           targetLine = fold.endIndex + 1;
@@ -904,9 +903,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
   /// Performs backspace at all cursor positions (primary + secondary).
   void backspaceAtAllCursors() {
-    if (readOnly || _multiCursors.isEmpty) {
-      return;
-    }
+    if (readOnly || _multiCursors.isEmpty) return;
 
     _flushBuffer();
 
@@ -922,7 +919,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
     final compound = _undoController?.beginCompoundOperation();
 
-    for (final offset in uniqueOffsets) {
+    for (final offset in uniqueOffsets.reversed) {
       if (offset > 0) {
         final deleteStart = (offset - 1).clamp(0, _rope.length);
         final deletedChar = _rope.substring(deleteStart, offset);
@@ -940,40 +937,25 @@ class CodeForgeController implements DeltaTextInputClient {
 
     compound?.end();
 
-    int primaryShift = 0;
-    for (final o in uniqueOffsets) {
-      if (o <= primaryOffset && o > 0) {
-        primaryShift += 1;
-      }
-    }
-    _selection = TextSelection.collapsed(
-      offset: (primaryOffset - primaryShift).clamp(0, _rope.length),
-    );
+    final primaryIndex = uniqueOffsets.indexOf(primaryOffset);
+    final primaryShift = primaryOffset > 0 ? primaryIndex + 1 : 0;
+    final primaryNewOffset = (primaryOffset - primaryShift).clamp(0, _rope.length);
+    _selection = TextSelection.collapsed(offset: primaryNewOffset);
 
     _multiCursors.clear();
-    final sortedAsc = uniqueOffsets.reversed.toList();
-    for (int i = 0; i < sortedAsc.length; i++) {
-      final origOffset = sortedAsc[i];
+    for (int k = 0; k < uniqueOffsets.length; k++) {
+      final origOffset = uniqueOffsets[k];
       if (origOffset <= 0) continue;
-      int shift = 0;
-      for (int j = 0; j <= i; j++) {
-        if (sortedAsc[j] > 0) shift++;
-      }
-      final newOffset = (origOffset - shift).clamp(0, _rope.length);
-      final primaryNewOffset = (primaryOffset - primaryShift).clamp(
-        0,
-        _rope.length,
-      );
+      final newOffset = (origOffset - (k + 1)).clamp(0, _rope.length);
       if (newOffset == primaryNewOffset) continue;
       final newLine = _rope.getLineAtOffset(newOffset);
       final newLineStart = _rope.getLineStartOffset(newLine);
-      final newChar = newOffset - newLineStart;
-      _multiCursors.add((line: newLine, character: newChar));
+      _multiCursors.add((line: newLine, character: newOffset - newLineStart));
     }
 
     multiCursorsChanged = true;
     dirtyRegion = TextRange(start: 0, end: _rope.length);
-    _scheduleSyncToConnection();
+    _invalidateImeSnapshotAndScheduleSync();
     notifyListeners();
   }
 
@@ -984,9 +966,7 @@ class CodeForgeController implements DeltaTextInputClient {
   /// After insertion, all cursor positions are updated to sit after the
   /// inserted text.
   void insertAtAllCursors(String textToInsert) {
-    if (readOnly || _multiCursors.isEmpty) {
-      return;
-    }
+    if (readOnly || _multiCursors.isEmpty) return;
 
     _flushBuffer();
 
@@ -1002,7 +982,7 @@ class CodeForgeController implements DeltaTextInputClient {
 
     final compound = _undoController?.beginCompoundOperation();
 
-    for (final offset in uniqueOffsets) {
+    for (final offset in uniqueOffsets.reversed) {
       final safeOffset = offset.clamp(0, _rope.length);
       _rope.insert(safeOffset, textToInsert);
       _currentVersion++;
@@ -1017,28 +997,17 @@ class CodeForgeController implements DeltaTextInputClient {
 
     compound?.end();
 
-    int primaryShift = 0;
-    for (final o in uniqueOffsets) {
-      if (o <= primaryOffset) {
-        primaryShift += textToInsert.length;
-      }
-    }
-    _selection = TextSelection.collapsed(
-      offset: (primaryOffset + primaryShift).clamp(0, _rope.length),
-    );
+    final primaryIndex = uniqueOffsets.indexOf(primaryOffset);
+    final primaryNewOffset = (primaryOffset + (primaryIndex + 1) * textToInsert.length).clamp(0, _rope.length);
+    _selection = TextSelection.collapsed(offset: primaryNewOffset);
 
     _multiCursors.clear();
-    final sortedAsc = uniqueOffsets.reversed.toList();
-    for (int i = 0; i < sortedAsc.length; i++) {
-      final newOffset = sortedAsc[i] + (i + 1) * textToInsert.length;
-      final safeNewOffset = newOffset.clamp(0, _rope.length);
-      final newLine = _rope.getLineAtOffset(safeNewOffset);
+    for (int k = 0; k < uniqueOffsets.length; k++) {
+      final newOffset = (uniqueOffsets[k] + (k + 1) * textToInsert.length).clamp(0, _rope.length);
+      if (newOffset == primaryNewOffset) continue;
+      final newLine = _rope.getLineAtOffset(newOffset);
       final newLineStart = _rope.getLineStartOffset(newLine);
-      final newChar = safeNewOffset - newLineStart;
-      final primaryNewOffset = primaryOffset + primaryShift;
-
-      if (safeNewOffset == primaryNewOffset) continue;
-      _multiCursors.add((line: newLine, character: newChar));
+      _multiCursors.add((line: newLine, character: newOffset - newLineStart));
     }
 
     multiCursorsChanged = true;
@@ -1780,6 +1749,7 @@ class CodeForgeController implements DeltaTextInputClient {
   ///
   /// If [isShiftPressed] is true, extends the selection.
   void pressUpArrowKey({bool isShiftPressed = false}) {
+    if (HardwareKeyboard.instance.isAltPressed) return;
     final currentLine = getLineAtOffset(selection.extentOffset);
 
     if (_isMobile &&
@@ -1810,12 +1780,12 @@ class CodeForgeController implements DeltaTextInputClient {
     }
 
     int targetLine = currentLine - 1;
-    while (targetLine > 0 && _isLineInFoldedRegion(targetLine)) {
+    while (targetLine > 0 && isLineInFoldedRegion(targetLine)) {
       targetLine--;
     }
 
-    if (_isLineInFoldedRegion(targetLine)) {
-      targetLine = _getFoldStartForLine(targetLine) ?? 0;
+    if (isLineInFoldedRegion(targetLine)) {
+      targetLine = getFoldStartForLine(targetLine) ?? 0;
     }
 
     final lineStart = getLineStartOffset(currentLine);
@@ -1842,6 +1812,7 @@ class CodeForgeController implements DeltaTextInputClient {
   ///
   /// If [isShiftPressed] is true, extends the selection.
   void pressDownArrowKey({bool isShiftPressed = false}) {
+    if (HardwareKeyboard.instance.isAltPressed) return;
     final currentLine = getLineAtOffset(selection.extentOffset);
 
     if (_isMobile &&
@@ -1861,21 +1832,17 @@ class CodeForgeController implements DeltaTextInputClient {
     }
 
     if (currentLine >= lineCount - 1) {
-      final endOffset = length;
       if (isShiftPressed) {
         setSelectionSilently(
-          TextSelection(
-            baseOffset: selection.baseOffset,
-            extentOffset: endOffset,
-          ),
+          TextSelection(baseOffset: selection.baseOffset, extentOffset: length),
         );
       } else {
-        setSelectionSilently(TextSelection.collapsed(offset: endOffset));
+        setSelectionSilently(TextSelection.collapsed(offset: length));
       }
       return;
     }
 
-    final foldAtCurrent = _getFoldRangeAtCurrentLine(currentLine);
+    final foldAtCurrent = getFoldRangeAtCurrentLine(currentLine);
     int targetLine;
     if (foldAtCurrent != null && foldAtCurrent.isFolded) {
       targetLine = foldAtCurrent.endIndex + 1;
@@ -1883,8 +1850,8 @@ class CodeForgeController implements DeltaTextInputClient {
       targetLine = currentLine + 1;
     }
 
-    while (targetLine < lineCount && _isLineInFoldedRegion(targetLine)) {
-      final foldStart = _getFoldStartForLine(targetLine);
+    while (targetLine < lineCount && isLineInFoldedRegion(targetLine)) {
+      final foldStart = getFoldStartForLine(targetLine);
       if (foldStart != null) {
         final fold = foldings[foldStart] ?? FoldRange(targetLine, targetLine);
         targetLine = fold.endIndex + 1;
@@ -5396,7 +5363,8 @@ class CodeForgeController implements DeltaTextInputClient {
     _bufferDirty = false;
   }
 
-  bool _isLineInFoldedRegion(int lineIndex) {
+  /// Check whether the corresponding [lineIndex] is inside a folded code block or not.
+  bool isLineInFoldedRegion(int lineIndex) {
     final starts = _foldedStartsSorted;
     final ends = _foldedEndsSorted;
     if (starts.isEmpty) return false;
@@ -5419,7 +5387,8 @@ class CodeForgeController implements DeltaTextInputClient {
     return false;
   }
 
-  int? _getFoldStartForLine(int lineIndex) {
+  /// if the corresponding line is in a foldable region, this function returns the first line in that foldable block.
+  int? getFoldStartForLine(int lineIndex) {
     final starts = _foldedStartsSorted;
     final ends = _foldedEndsSorted;
     if (starts.isEmpty) return null;
@@ -5440,7 +5409,8 @@ class CodeForgeController implements DeltaTextInputClient {
     return null;
   }
 
-  FoldRange? _getFoldRangeAtCurrentLine(int lineIndex) {
+  /// Get the [FoldRange] information if the corresponding line is included in a foldable block.
+  FoldRange? getFoldRangeAtCurrentLine(int lineIndex) {
     return foldings[lineIndex];
   }
 

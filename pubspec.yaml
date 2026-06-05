@@ -1,10 +1,10 @@
 name: code_forge
 description: "A sophisticated code editor package for flutter backed by rust backend."
-version: 10.4.1
+version: 10.5.0
 homepage: https://github.com/heckmon/code_forge
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.12.1
   flutter: ">=1.17.0"
 
 dependencies:

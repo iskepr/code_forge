@@ -48,8 +48,10 @@
 >
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
-## What's new in 10.4.1:
-  - FIX: Fixed focus bug in mobile.
+## What's new in 10.5.0:
+  - FIX: [#81](https://github.com/heckmon/code_forge/issues/81)
+  - FEATURE: Added a custom gutter builder as requested in [#79](https://github.com/heckmon/code_forge/issues/79)
+  - FEATURE: Exposed keyboard shortcuts overriding via `CodeForgeKeyboardShortcuts` and Added multiple column editing and multicursot extending with `Alt + Shift + ArrowUp/ArrowDown` as requested in [#80](https://github.com/heckmon/code_forge/issues/80)
 
 
 > [!NOTE]
@@ -132,20 +134,22 @@ To see working examples of all CodeForge features including AI Code Completion, 
 
 ```yaml
 dependencies:
-  code_forge: ^10.4.1
+  code_forge: ^10.5.0
 ```
-3 . Add `await RustLib.init();` in your main function:
+- 3 . Then run:
+
+```bash
+flutter pub get
+```
+
+- 4 . Add `await RustLib.init();` in your main function:
 ```dart
 void main() async {
   await RustLib.init(); // Add this line
   runApp(const MyApp());
 }
 ```
- - 4 . Then run:
 
-```bash
-flutter pub get
-```
 
 ---
 

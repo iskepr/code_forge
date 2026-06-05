@@ -1,21 +1,14 @@
-import '../src/rust/api/editor.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:re_highlight/styles/lightfair.dart';
-
-import '../LSP/lsp.dart';
-
-import 'controller.dart';
-import 'find_controller.dart';
-import 'scroll.dart';
-import 'styling.dart';
-import 'syntax_highlighter.dart';
-import 'undo_redo.dart';
+import '../code_forge.dart';
+import './syntax_highlighter.dart';
+import '../src/rust/api/editor.dart';
 
 import 'package:re_highlight/re_highlight.dart';
+import 'package:re_highlight/styles/lightfair.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -28,16 +21,6 @@ import 'package:vector_math/vector_math_64.dart' show Vector3;
 const int kSemanticTokenViewportPaddingLines = 1500;
 const int kExactWrappedHeightThreshold = 512;
 const int kWrappedHeightSampleSize = 64;
-// Characters treated as part of a "word" for double-click selection, word-prefix
-// extraction, and hover. Covers Latin/digits/underscore (\w), Arabic and Hebrew,
-// and CJK: Hiragana (3040-309F), Katakana (30A0-30FF), CJK Extension A
-// (3400-4DBF), CJK Unified Ideographs (4E00-9FFF), Hangul Syllables (AC00-D7AF),
-// and CJK Compatibility Ideographs (F900-FAFF). Without the CJK ranges every CJK
-// glyph counts as a word boundary, so double-clicking Chinese/Japanese/Korean
-// text selects nothing; including them makes a double-click select the
-// contiguous CJK run, mirroring how it selects a run of Latin letters. CJK
-// punctuation/symbol blocks are intentionally excluded so they remain
-// boundaries, like ASCII punctuation.
 const String _wordCharPattern =
     r'[\w\u0600-\u06FF\u08A0-\u08FF\u0590-\u05FF'
     r'\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]';
@@ -143,8 +126,30 @@ class CodeForge extends StatefulWidget {
   /// Custom scroll controller for horizontal scrolling.
   final ScrollController? horizontalScrollController;
 
+  /// Keyboard shortcuts used by the [CodeForge] editor.<br>
+  /// Most of the keyboard shortcuts, except the core operations like cut, copy, paste, select all, undo, redo 
+  /// can be modified by editing the hardcoded shortcuts defined in the [CodeForgeKeyboardShotcuts] class.<br>
+  /// <br>
+  /// eg:
+  /// 
+  /// ```dart
+  /// // Here the line duplicate shortcut `Ctrl + D` has beeb overriden by `Ctrl + B`.
+  /// CodeForge(
+  ///   keyboardShotcuts: CodeForgeKeyboardShotcuts(
+  ///     duplicate: SingleActivator(LogicalKeyboardKey.keyB, control: true)
+  ///   ),
+  /// )
+  /// ```
+  /// 
+  /// **Note: There is no exception handling implemented to prevent the usage of same shortcut keys on multiple operations.
+  /// Using the same shortcut on multiple operations may causes undefined behaviour.**
+  final CodeForgeKeyboardShortcuts keyboardShotcuts;
+
   /// Styling options for text selection and cursor.
   final CodeSelectionStyle? selectionStyle;
+
+  /// Can be used to build gutter with custom content instead of line numbers.
+  final GutterBuilder? gutterBuilder;
 
   /// Styling options for the gutter (line numbers and fold icons).
   final GutterStyle? gutterStyle;
@@ -276,6 +281,7 @@ class CodeForge extends StatefulWidget {
     this.horizontalScrollController,
     this.textStyle,
     this.innerPadding,
+    this.keyboardShotcuts = const CodeForgeKeyboardShortcuts(),
     this.customCodeSnippets,
     this.readOnly = false,
     this.autoFocus = false,
@@ -293,6 +299,7 @@ class CodeForge extends StatefulWidget {
     this.deleteFoldRangeOnDeletingFirstLine = false,
     this.selectionStyle,
     this.gutterStyle,
+    this.gutterBuilder,
     this.scrollbarDecoration,
     this.ghostTextStyle,
     this.suggestionStyle,
@@ -574,17 +581,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
 
           _controller.connection = _connection;
         }
-        // Always (re)activate the platform IME when focus is gained, even if a
-        // connection was already attached before focus (see the post-frame path
-        // below). Without show() the desktop IME never becomes the active input
-        // client: on macOS this blocks text input entirely, and on Windows it
-        // leaves the editor able to highlight lines but unable to accept typing.
-        if (!_isMobile) _connection!.show();
-        // Seed the platform with the IME projection (the small window around the
-        // caret) rather than the full document. The controller's input handlers
-        // operate in projection coordinates, so seeding the full text leaves the
-        // two out of sync and makes the first typed/composed characters land far
-        // from the caret (e.g. on a line above where the user clicked).
+        if (!_isMobile && !widget.readOnly) _connection!.show();
         _connection!.setEditingState(
           _controller.currentTextEditingValue ??
               TextEditingValue(
@@ -781,10 +778,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     });
   }
 
-  /// Attaches a platform text-input connection configured for this editor.
-  /// Shared by the initial attach, the focus-gain re-attach, and the IME reset
-  /// that drops an in-progress composition so the OS closes its candidate
-  /// window.
   TextInputConnection _attachImeConnection() {
     return TextInput.attach(
       _controller,
@@ -800,12 +793,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
     );
   }
 
-  /// Closes and re-attaches the platform input connection. On desktop this is
-  /// the only reliable way to make the IME abandon an in-progress composition
-  /// and close its candidate window -- pushing an empty composing range via
-  /// setEditingState does not. The document already holds the composed
-  /// characters, so they stay committed; only the platform-side composition
-  /// session is dropped. Wired to [CodeForgeController.requestImeReset].
   void _resetImeConnection() {
     if (_readOnly || !_focusNode.hasFocus) return;
     final previous = _connection;
@@ -1686,16 +1673,253 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                             return Focus(
                                               focusNode: _focusNode,
                                               onKeyEvent: (node, event) {
-                                                // While an IME composition is in progress (e.g. CJK
-                                                // pinyin), the platform input method owns the keyboard.
-                                                // Defer every key to it: also handling Backspace, arrows,
-                                                // Enter, etc. here would edit the document a second time
-                                                // and desync from the IME (e.g. a backspaced letter
-                                                // reappearing).
                                                 if (_controller
                                                     .isComposingActive) {
                                                   return KeyEventResult.ignored;
                                                 }
+
+                                                final shrtCt = widget.keyboardShotcuts;
+                                                if (shrtCt.duplicate.accepts(event, HardwareKeyboard.instance)) {
+                                                  if (!_readOnly) {
+                                                    _controller.duplicateLine();
+                                                    _commonKeyFunctions();
+                                                  }
+                                                  return KeyEventResult.handled;
+                                                } 
+
+                                                if(shrtCt.deletWordBackward.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (!_readOnly) {
+                                                      _deleteWordBackward();
+                                                      _commonKeyFunctions();
+                                                    }
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.deletWordForward.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (!_readOnly) {
+                                                      _deleteWordForward();
+                                                      _commonKeyFunctions();
+                                                    }
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveCursorToPreviousWord.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (widget.textDirection == TextDirection.rtl) {
+                                                      _moveWordRight(false);
+                                                    } else {
+                                                      _moveWordLeft(false);
+                                                    }
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveCursorToNextWord.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (widget.textDirection == TextDirection.rtl) {
+                                                      _moveWordLeft(false);
+                                                    } else {
+                                                      _moveWordRight(false);
+                                                    }
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.lspCodeActions.accepts(event, HardwareKeyboard.instance)) {
+                                                    (() async {
+                                                      _suggestionNotifier.value = null;
+                                                      await _fetchCodeActionsForCurrentPosition();
+                                                    })();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.jumpToDocumentStart.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressDocumentHomeKey(
+                                                      isShiftPressed:false
+                                                    );
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.jumpToDocumentStartAndSelectText.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressDocumentHomeKey(
+                                                      isShiftPressed:true
+                                                    );
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.jumpToDocumentEnd.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressDocumentEndKey(
+                                                      isShiftPressed:false,
+                                                    );
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.jumpToDocumentEndAndSelectText.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressDocumentEndKey(
+                                                      isShiftPressed:true,
+                                                    );
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.showFindBar.accepts(event, HardwareKeyboard.instance)) {
+                                                    final isAlt = HardwareKeyboard.instance.isAltPressed;
+                                                    _findController.isActive = true;
+                                                    _findController.isReplaceMode = isAlt;
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.showFindAndReplaceBar.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (!HardwareKeyboard.instance.isMetaPressed) {
+                                                      _findController.isActive = true;
+                                                      _findController.isReplaceMode = true;
+
+                                                      return KeyEventResult.handled;
+                                                    }
+                                                }
+                                                
+                                                if(shrtCt.lspSignatureHelp.accepts(event, HardwareKeyboard.instance)) {
+                                                    setState(() {
+                                                      _isSignatureInvoked = true;
+                                                    });
+                                                    (() async => await _controller.callSignatureHelp())();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.shiftLineUp.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.moveLineUp();
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.shiftLineDown.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.moveLineDown();
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionToPreviousWord.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (widget.textDirection == TextDirection.rtl) {
+                                                      _moveWordRight(true);
+                                                    } else {
+                                                      _moveWordLeft(true);
+                                                    }
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionToNextWord.accepts(event, HardwareKeyboard.instance)) {
+                                                    if (widget.textDirection == TextDirection.rtl) {
+                                                      _moveWordLeft(true);
+                                                    } else {
+                                                      _moveWordRight(true);
+                                                    }
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionForward.accepts(event, HardwareKeyboard.instance)) {  
+                                                    _handleArrowRight(true);
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionBackward.accepts(event, HardwareKeyboard.instance)) {
+                                                    _handleArrowLeft(true);
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionUpward.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressUpArrowKey(isShiftPressed:true);
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+
+                                                }
+                                                
+                                                if(shrtCt.moveSelectionDownward.accepts(event, HardwareKeyboard.instance)) {
+                                                    _controller.pressDownArrowKey(isShiftPressed:true);
+                                                    _commonKeyFunctions();
+                                                    return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.selectToLineStart.accepts(event, HardwareKeyboard.instance)) {
+                                                  _controller.pressHomeKey(
+                                                    isShiftPressed: true,
+                                                  );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.selectToLineEnd.accepts(event, HardwareKeyboard.instance)) {
+                                                  _controller.pressEndKey(
+                                                    isShiftPressed: true,
+                                                  );
+                                                  _commonKeyFunctions();
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.extendMutliCursorDownward.accepts(event, HardwareKeyboard.instance)) {
+                                                  final selection = _controller.selection;
+                                                  final primaryLine = _controller.getLineAtOffset(selection.extentOffset);
+
+                                                  final anchorLine = _controller.hasMultiCursors
+                                                      ? _controller.multiCursors.map((c) => c.line).reduce((a, b) => a > b ? a : b)
+                                                      : primaryLine;
+
+                                                  final foldAtAnchor = _controller.getFoldRangeAtCurrentLine(anchorLine);
+                                                  int targetLine = (foldAtAnchor != null && foldAtAnchor.isFolded)
+                                                      ? foldAtAnchor.endIndex + 1
+                                                      : anchorLine + 1;
+
+                                                  while (targetLine < _controller.lineCount && _controller.isLineInFoldedRegion(targetLine)) {
+                                                    final foldStart = _controller.getFoldStartForLine(targetLine);
+                                                    if (foldStart != null) {
+                                                      final fold = _controller.foldings[foldStart] ?? FoldRange(targetLine, targetLine);
+                                                      targetLine = fold.endIndex + 1;
+                                                    } else {
+                                                      targetLine++;
+                                                    }
+                                                  }
+
+                                                  if (targetLine < _controller.lineCount) {
+                                                    final lineStart = _controller.getLineStartOffset(primaryLine);
+                                                    final column = selection.extentOffset - lineStart;
+                                                    final nextLineText = _controller.getLineText(targetLine);
+                                                    final newColumn = column.clamp(0, nextLineText.length);
+                                                    _controller.addMultiCursor(targetLine, newColumn);
+                                                  }
+
+                                                  return KeyEventResult.handled;
+                                                }
+
+                                                if (shrtCt.extendMutliCursorUpward.accepts(event, HardwareKeyboard.instance)) {
+                                                  final selection = _controller.selection;
+                                                  final primaryLine = _controller.getLineAtOffset(selection.extentOffset);
+
+                                                  final anchorLine = _controller.hasMultiCursors
+                                                      ? _controller.multiCursors.map((c) => c.line).reduce((a, b) => a < b ? a : b)
+                                                      : primaryLine;
+
+                                                  int targetLine = anchorLine - 1;
+                                                  while (targetLine > 0 && _controller.isLineInFoldedRegion(targetLine)) {
+                                                    targetLine--;
+                                                  }
+                                                  if (_controller.isLineInFoldedRegion(targetLine)) {
+                                                    targetLine = _controller.getFoldStartForLine(targetLine) ?? 0;
+                                                  }
+
+                                                  final lineStart = _controller.getLineStartOffset(primaryLine);
+                                                  final column = selection.extentOffset - lineStart;
+                                                  final prevLineText = _controller.getLineText(targetLine);
+                                                  final newColumn = column.clamp(0, prevLineText.length);
+                                                  _controller.addMultiCursor(targetLine, newColumn);
+
+                                                  return KeyEventResult.handled;
+                                                }
+
                                                 final isCtrlAltPressed =
                                                     (HardwareKeyboard
                                                             .instance
@@ -1898,95 +2122,9 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                     }
                                                   }
 
-                                                  if (isCtrlPressed &&
-                                                      isShiftPressed) {
-                                                    switch (event.logicalKey) {
-                                                      case LogicalKeyboardKey
-                                                          .space:
-                                                        setState(() {
-                                                          _isSignatureInvoked =
-                                                              true;
-                                                        });
-                                                        (() async =>
-                                                            await _controller
-                                                                .callSignatureHelp())();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowUp:
-                                                        _controller
-                                                            .moveLineUp();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowDown:
-                                                        _controller
-                                                            .moveLineDown();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowLeft:
-                                                        if (widget
-                                                                .textDirection ==
-                                                            TextDirection.rtl) {
-                                                          _moveWordRight(true);
-                                                        } else {
-                                                          _moveWordLeft(true);
-                                                        }
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowRight:
-                                                        if (widget
-                                                                .textDirection ==
-                                                            TextDirection.rtl) {
-                                                          _moveWordLeft(true);
-                                                        } else {
-                                                          _moveWordRight(true);
-                                                        }
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      default:
-                                                        break;
-                                                    }
-                                                  }
 
                                                   if (isCtrlPressed) {
                                                     switch (event.logicalKey) {
-                                                      case LogicalKeyboardKey
-                                                          .keyF:
-                                                        final isAlt =
-                                                            HardwareKeyboard
-                                                                .instance
-                                                                .isAltPressed;
-                                                        _findController
-                                                                .isActive =
-                                                            true;
-                                                        _findController
-                                                                .isReplaceMode =
-                                                            isAlt;
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .keyH:
-                                                        if (!HardwareKeyboard
-                                                            .instance
-                                                            .isMetaPressed) {
-                                                          _findController
-                                                                  .isActive =
-                                                              true;
-                                                          _findController
-                                                                  .isReplaceMode =
-                                                              true;
-
-                                                          return KeyEventResult
-                                                              .handled;
-                                                        }
-                                                        break;
                                                       case LogicalKeyboardKey
                                                           .keyC:
                                                         _controller.copy();
@@ -2016,17 +2154,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                         return KeyEventResult
                                                             .handled;
                                                       case LogicalKeyboardKey
-                                                          .keyD:
-                                                        if (_readOnly) {
-                                                          return KeyEventResult
-                                                              .handled;
-                                                        }
-                                                        _controller
-                                                            .duplicateLine();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
                                                           .keyZ:
                                                         if (_readOnly) {
                                                           return KeyEventResult
@@ -2052,80 +2179,6 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                               .redo();
                                                           _commonKeyFunctions();
                                                         }
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .backspace:
-                                                        if (_readOnly) {
-                                                          return KeyEventResult
-                                                              .handled;
-                                                        }
-                                                        _deleteWordBackward();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .delete:
-                                                        if (_readOnly) {
-                                                          return KeyEventResult
-                                                              .handled;
-                                                        }
-                                                        _deleteWordForward();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowLeft:
-                                                        if (widget
-                                                                .textDirection ==
-                                                            TextDirection.rtl) {
-                                                          _moveWordRight(false);
-                                                        } else {
-                                                          _moveWordLeft(false);
-                                                        }
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowRight:
-                                                        if (widget
-                                                                .textDirection ==
-                                                            TextDirection.rtl) {
-                                                          _moveWordLeft(false);
-                                                        } else {
-                                                          _moveWordRight(false);
-                                                        }
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .period:
-                                                        (() async {
-                                                          _suggestionNotifier
-                                                                  .value =
-                                                              null;
-                                                          await _fetchCodeActionsForCurrentPosition();
-                                                        })();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .home:
-                                                        _controller
-                                                            .pressDocumentHomeKey(
-                                                              isShiftPressed:
-                                                                  isShiftPressed,
-                                                            );
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .end:
-                                                        _controller
-                                                            .pressDocumentEndKey(
-                                                              isShiftPressed:
-                                                                  isShiftPressed,
-                                                            );
-                                                        _commonKeyFunctions();
                                                         return KeyEventResult
                                                             .handled;
                                                       default:
@@ -2191,71 +2244,14 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                   }
 
                                                   if (isShiftPressed &&
-                                                      !isCtrlPressed) {
-                                                    switch (event.logicalKey) {
-                                                      case LogicalKeyboardKey
-                                                          .tab:
-                                                        if (_readOnly) {
-                                                          return KeyEventResult
-                                                              .handled;
-                                                        }
-                                                        _controller.unindent();
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowLeft:
-                                                        _handleArrowLeft(true);
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowRight:
-                                                        _handleArrowRight(true);
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowUp:
-                                                        _controller
-                                                            .pressUpArrowKey(
-                                                              isShiftPressed:
-                                                                  isShiftPressed,
-                                                            );
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .arrowDown:
-                                                        _controller
-                                                            .pressDownArrowKey(
-                                                              isShiftPressed:
-                                                                  isShiftPressed,
-                                                            );
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .home:
-                                                        _controller.pressHomeKey(
-                                                          isShiftPressed:
-                                                              isShiftPressed,
-                                                        );
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      case LogicalKeyboardKey
-                                                          .end:
-                                                        _controller.pressEndKey(
-                                                          isShiftPressed:
-                                                              isShiftPressed,
-                                                        );
-                                                        _commonKeyFunctions();
-                                                        return KeyEventResult
-                                                            .handled;
-                                                      default:
-                                                        break;
-                                                    }
+                                                    !isCtrlPressed &&
+                                                    event.logicalKey == LogicalKeyboardKey.tab
+                                                  ) {
+                                                    if (!_readOnly) {
+                                                      _controller.unindent();
+                                                      _commonKeyFunctions();
+                                                      }
+                                                      return KeyEventResult.handled;
                                                   }
 
                                                   switch (event.logicalKey) {
@@ -2554,6 +2550,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                 onHoverSetByTap: () {
                                                   _hoverSetByTap = true;
                                                 },
+                                                gutterBuilder: widget.gutterBuilder
                                               ),
                                             );
                                           },
@@ -3975,6 +3972,7 @@ class _CodeField extends LeafRenderObjectWidget {
   final MatchHighlightStyle? matchHighlightStyle;
   final VoidCallback? onHoverSetByTap;
   final TextDirection textDirection;
+  final GutterBuilder? gutterBuilder;
 
   const _CodeField({
     super.key,
@@ -3993,6 +3991,7 @@ class _CodeField extends LeafRenderObjectWidget {
     required this.enableGutter,
     required this.enableGutterDivider,
     required this.gutterStyle,
+    required this.gutterBuilder,
     required this.selectionStyle,
     required this.diagnostics,
     required this.isMobile,
@@ -4047,6 +4046,7 @@ class _CodeField extends LeafRenderObjectWidget {
       enableGutter: enableGutter,
       enableGutterDivider: enableGutterDivider,
       gutterStyle: gutterStyle,
+      gutterBuilder: gutterBuilder,
       selectionStyle: selectionStyle,
       diagnostics: diagnostics,
       isMobile: isMobile,
@@ -4147,15 +4147,16 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   final Map<int, int> _lineIndentCache = {};
   final MatchHighlightStyle? _matchHighlightStyle;
   final MatchHighlightStyle? matchHighlightStyle;
-  late double _lineHeight;
   final _dtap = DoubleTapGestureRecognizer();
   final _onetap = TapGestureRecognizer();
+  final GutterBuilder? gutterBuilder;
   late double _gutterPadding;
   late final Paint _caretPainter;
   late final Paint _bracketHighlightPainter;
+  late final LayoutMap _layoutMap;
+  late double _lineHeight;
   late ui.ParagraphStyle _paragraphStyle;
   late ui.TextStyle _uiTextStyle;
-  late final LayoutMap _layoutMap;
   late SyntaxHighlighter _syntaxHighlighter;
   late double _gutterWidth;
   TextStyle? _ghostTextStyle;
@@ -4172,10 +4173,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
   Rect? _lastImeCaretRect;
   Rect? _lastImeComposingRect;
   Size? _lastImeEditableSize;
-  // Set by [_drawImeComposition] each paint: the composing caret offset and the
-  // composing string width, both in line-local content coordinates relative to
-  // the composing anchor. Consumed by [_updateImeGeometry] so the OS candidate
-  // window tracks the composition rather than the (frozen) document caret.
   double _imeComposingCaretDx = 0.0;
   double _imeComposingWidth = 0.0;
   int? _dragStartOffset;
@@ -4517,6 +4514,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     required this._enableGutter,
     required this._enableGutterDivider,
     required GutterStyle gutterStyle,
+    required this.gutterBuilder,
     required this._selectionStyle,
     required this._diagnostics,
     this.languageId,
@@ -6255,10 +6253,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         !isRTL) {
       para = _paragraphCache[lineIndex]!;
     } else {
-      // Measure against the highlighted paragraph so caret geometry matches the
-      // painted text and the IME composition overlay, which both lay out with
-      // per-token styles (e.g. bold keywords) whose glyph advances differ from
-      // the uniform plain style.
       para = _buildHighlightedParagraph(
         lineIndex,
         lineText,
@@ -6366,10 +6360,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         !isRTL) {
       para = _paragraphCache[lineIndex]!;
     } else {
-      // Measure against the highlighted paragraph so caret geometry matches the
-      // painted text and the IME composition overlay, which both lay out with
-      // per-token styles (e.g. bold keywords) whose glyph advances differ from
-      // the uniform plain style.
       para = _buildHighlightedParagraph(
         lineIndex,
         lineText,
@@ -6562,12 +6552,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   Offset getCaretOffset() => _getCaretInfo().offset;
 
-  /// Reports the editable region's size/transform and the caret rectangle to
-  /// the platform input method, so the OS places the IME composition/candidate
-  /// window next to the caret instead of at the window's top-left corner. The
-  /// caret rect is derived from the same [_getCaretInfo] used to paint the
-  /// cursor, so the reported geometry matches what is drawn. Redundant pushes
-  /// from cheap repaints (e.g. the cursor blink) are skipped via a cache.
   void _updateImeGeometry() {
     final conn = controller.connection;
     if (conn == null || !conn.attached) return;
@@ -6584,8 +6568,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     final caretY = caretInfo.offset.dy + (innerPadding?.top ?? 0);
 
-    // The caret rect tracks the composing caret while composing, otherwise the
-    // document caret.
     final caretInLine =
         caretInfo.offset.dx + (composing ? _imeComposingCaretDx : 0.0);
     final caretRect = Rect.fromLTWH(
@@ -6595,8 +6577,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       caretInfo.height,
     );
 
-    // The composing rect spans the whole composing string from the anchor so
-    // the OS candidate window docks under the composition itself.
     final composingRect = composing
         ? Rect.fromLTWH(
             contentX(caretInfo.offset.dx) - hScroll,
@@ -6622,13 +6602,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     conn.setComposingRect(composingRect);
   }
 
-  /// Paints the in-progress IME composition (CJK pinyin/kana, etc.) as an
-  /// overlay at the composing anchor. The composing text is not part of the
-  /// document, so the committed line is painted normally and this overlay is
-  /// composited on top: the composing string (underlined) is drawn at the
-  /// anchor and the committed remainder of the line is shifted to its right,
-  /// mirroring how ghost text is rendered. Also records the composing caret
-  /// offset and width for [_updateImeGeometry].
   void _drawImeComposition(Canvas canvas, Offset offset, bool hasActiveFolds) {
     _imeComposingCaretDx = 0.0;
     _imeComposingWidth = 0.0;
@@ -6640,8 +6613,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (hasActiveFolds && _isLineFolded(anchorLine)) return;
 
     final lineY = _getLineYOffset(anchorLine, hasActiveFolds);
-    // Match the committed line's Y: innerPadding.top + lineY + virtualOffset
-    // - scroll (virtualOffset covers any virtual-removed blocks above this line).
     final virtualYOffset = _getTotalVirtualOffset(anchorLine);
     final viewportHeight = vscrollController.position.viewportDimension;
     final screenYBase =
@@ -6669,12 +6640,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     double anchorX = 0;
     double rowTop = 0;
     if (lineText.isNotEmpty && clampedCol > 0) {
-      // Place the overlay on the same visual row as the anchor. The committed
-      // line is painted at the plain row top and applies its line-height leading
-      // internally; the overlay paragraph uses the same line-height, so it must
-      // sit at that row top to line up. [_rowTopForBox] derives the row from the
-      // glyph box center so a CJK glyph before the anchor does not push it a row
-      // too high (see that helper).
       final boxes = linePara.getBoxesForRange(
         0,
         clampedCol,
@@ -7934,9 +7899,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
     canvas.restore();
 
-    // Keep the platform IME informed of where the caret is on screen so the
-    // composition/candidate window follows the caret instead of docking at
-    // the window's top-left corner.
     _updateImeGeometry();
   }
 
@@ -7989,7 +7951,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
       }
     })();
 
-    final hasActiveFolds = _hasActiveFolds;
     final cursorOffset = controller.selection.extentOffset;
     final currentLine = controller.getLineAtOffset(cursorOffset);
     final selection = controller.selection;
@@ -8036,13 +7997,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     final firstVisibleLine = _findVisibleLineByYPosition(
       viewTop,
     ).clamp(0, lineCount - 1);
-    final firstVisibleLineY = _getLineYOffset(firstVisibleLine, hasActiveFolds);
+    final firstVisibleLineY = _getLineYOffset(firstVisibleLine, _hasActiveFolds);
 
     _actionBulbRects.clear();
 
     double currentY = firstVisibleLineY;
+    int indexTracker = 1;
+
     for (int i = firstVisibleLine; i < lineCount; i++) {
-      if (hasActiveFolds && _isLineFolded(i)) continue;
+      if (_hasActiveFolds && _isLineFolded(i)) continue;
 
       final contentTop = currentY;
       final lineHeight = lineWrap ? _getWrappedLineHeight(i) : _lineHeight;
@@ -8080,9 +8043,30 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         final lineNumberStyle = baseLineNumberStyle!.copyWith(
           color: lineNumberColor,
         );
+        
+        String gutterText;
+
+        final builderText = gutterBuilder?.builder.call(i + 1, controller.getLineText(i));
+        final builderWidth = (builderText?.length ?? 0) * 0.6 * _gutterPadding;
+
+        if (builderText == null){
+          gutterText = indexTracker.toString();
+          indexTracker++;
+        } else {
+          if (gutterBuilder?.includeReplacedIndex ?? false) {
+            gutterText = builderText;
+            indexTracker++;  
+          } else {
+            gutterText = builderText;
+          }
+
+          if (builderWidth >= _gutterWidth) {
+            _gutterWidth = (enableFolding ? (_textStyle?.fontSize ?? 14.0) + 4 : 0) + _gutterPadding + builderWidth;
+          }
+        }
 
         final lineNumPara = _buildLineNumberParagraph(
-          (i + 1).toString(),
+          gutterText,
           lineNumberStyle,
         );
         final numWidth = lineNumPara.longestLine;
@@ -8090,15 +8074,15 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
         canvas.drawParagraph(
           lineNumPara,
           offset +
-              Offset(
-                (isRTL ? size.width - _gutterWidth : 0) +
-                    (_gutterWidth - numWidth) / 2 -
-                    (enableFolding ? (lineNumberStyle.fontSize ?? 14) / 2 : 0),
-                (innerPadding?.top ?? 0) +
-                    contentTop +
-                    visualYOffset -
-                    vscrollController.offset,
-              ),
+            Offset(
+              (isRTL ? size.width - _gutterWidth : 0) +
+                (_gutterWidth - numWidth) / 2 -
+                (enableFolding ? (lineNumberStyle.fontSize ?? 14) / 2 : 0),
+              (innerPadding?.top ?? 0) +
+                contentTop +
+                visualYOffset -
+                vscrollController.offset,
+            ),
         );
 
         if (lspConfig != null && lspActionNotifier.value != null) {
@@ -11123,12 +11107,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
           _selectWordAtOffset(textOffset);
         });
       } else {
-        // Acquire focus on pointer-down. Focus was previously requested only by
-        // a GestureDetector.onTap wrapper, which does not fire when the click is
-        // interpreted as a micro-drag or when the editor's own drag-selection
-        // recognizer wins the gesture arena. In those cases the selection was
-        // set (the line highlighted) but focus was never gained, so the IME was
-        // never shown and typing did nothing.
         controller.focusNode?.requestFocus();
         _dtap.addPointer(event);
         _dtap.onDoubleTap = () {
@@ -11255,7 +11233,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       if (!_isDragging && isMobile && !_selectionActive) {
         controller.selection = TextSelection.collapsed(offset: textOffset);
-        if (controller.connection?.attached ?? false) {
+        if (controller.connection?.attached ?? false || !readOnly) {
           controller.connection?.show();
         }
       }
@@ -11395,119 +11373,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   bool get validForMouseTracker => true;
-}
-
-/// Represents a foldable code region in the editor.
-///
-/// A fold range defines a region of code that can be collapsed (folded) to hide
-/// its contents. This is typically used for code blocks like functions, classes,
-/// or control structures.
-///
-/// Fold ranges are automatically detected based on code structure (braces,
-/// indentation) when folding is enabled in the editor.
-///
-/// Example:
-/// ```dart
-/// // A fold range from line 5 to line 10
-/// final foldRange = FoldRange(5, 10);
-/// foldRange.isFolded = true; // Collapse the region
-/// ```
-class FoldRange {
-  /// The starting line index (zero-based) of the fold range.
-  ///
-  /// This is the line where the fold indicator appears in the gutter.
-  final int startIndex;
-
-  /// The ending line index (zero-based) of the fold range.
-  ///
-  /// When folded, all lines from `startIndex + 1` to `endIndex` are hidden.
-  final int endIndex;
-
-  /// Whether this fold range is currently collapsed.
-  ///
-  /// When true, the contents of this range are hidden in the editor.
-  bool isFolded = false;
-
-  /// Child fold ranges that were originally folded when this range was unfolded.
-  ///
-  /// Used to restore the fold state of nested ranges when toggling folds.
-  List<FoldRange> originallyFoldedChildren = [];
-
-  /// Creates a [FoldRange] with the specified start and end line indices.
-  FoldRange(this.startIndex, this.endIndex);
-
-  /// Adds a child fold range that was originally folded.
-  ///
-  /// Used internally to track nested fold states.
-  void addOriginallyFoldedChild(FoldRange child) {
-    if (!originallyFoldedChildren.contains(child)) {
-      originallyFoldedChildren.add(child);
-    }
-  }
-
-  /// Clears the list of originally folded children.
-  void clearOriginallyFoldedChildren() {
-    originallyFoldedChildren.clear();
-  }
-
-  /// Checks if a line is contained within this fold range.
-  ///
-  /// Returns true if [line] is strictly greater than [startIndex] and
-  /// less than or equal to [endIndex].
-  bool containsLine(int line) {
-    return line > startIndex && line <= endIndex;
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    return other is FoldRange &&
-        other.startIndex == startIndex &&
-        other.endIndex == endIndex;
-  }
-
-  @override
-  int get hashCode => startIndex.hashCode ^ endIndex.hashCode;
-}
-
-/// Custom scroll physics that reverses horizontal drag direction for RTL mode on mobile.
-class RTLAwareScrollPhysics extends ClampingScrollPhysics {
-  final bool isRTL;
-  final bool isMobile;
-
-  const RTLAwareScrollPhysics({
-    super.parent,
-    required this.isRTL,
-    required this.isMobile,
-  });
-
-  @override
-  RTLAwareScrollPhysics applyTo(ScrollPhysics? ancestor) {
-    return RTLAwareScrollPhysics(
-      parent: buildParent(ancestor),
-      isRTL: isRTL,
-      isMobile: isMobile,
-    );
-  }
-
-  @override
-  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
-    if (isRTL && isMobile && position.axis == Axis.horizontal) {
-      return super.applyPhysicsToUserOffset(position, -offset);
-    }
-    return super.applyPhysicsToUserOffset(position, offset);
-  }
-
-  @override
-  Simulation? createBallisticSimulation(
-    ScrollMetrics position,
-    double velocity,
-  ) {
-    if (isRTL && isMobile && position.axis == Axis.horizontal) {
-      return super.createBallisticSimulation(position, -velocity);
-    }
-    return super.createBallisticSimulation(position, velocity);
-  }
 }
 
 class _BracketEntry {
