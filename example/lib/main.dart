@@ -27,7 +27,7 @@ class _MyAppState extends State<MyApp> {
   Future<LspConfig> getLsp() async {
     final absWorkspacePath = p.join(Directory.current.path, "lib");
     final data = await LspStdioConfig.start(
-      executable: "dart",
+      executable: "/home/athul/flutter/flutter/bin//dart",
       args: ["language-server", "--protocol=lsp"],
       workspacePath: absWorkspacePath,
       languageId: "dart",

@@ -435,3 +435,8 @@ This release establishes **CodeForge** as a powerful, production-ready code edit
   - FIX: [#81](https://github.com/heckmon/code_forge/issues/81)
   - FEATURE: Added a custom gutter builder as requested in [#79](https://github.com/heckmon/code_forge/issues/79)
   - FEATURE: Exposed keyboard shortcuts overriding via `CodeForgeKeyboardShortcuts` and Added multiple column editing and multicursot extending with `Alt + Shift + ArrowUp/ArrowDown` as requested in [#80](https://github.com/heckmon/code_forge/issues/80)
+
+## 10.6.0
+  - FIX: [#82](https://github.com/heckmon/code_forge/issues/82)
+  - FIX: Gutter mismatch.
+  - FEATURE: Exposed vertical scroll physics.

@@ -48,10 +48,10 @@
 >
 > code_forge does **not** support Flutter web, as it relies on `dart:io` for core functionality. Use [code_forge_web](https://pub.dev/packages/code_forge_web) for web support.
 
-## What's new in 10.5.0:
-  - FIX: [#81](https://github.com/heckmon/code_forge/issues/81)
-  - FEATURE: Added a custom gutter builder as requested in [#79](https://github.com/heckmon/code_forge/issues/79)
-  - FEATURE: Exposed keyboard shortcuts overriding via `CodeForgeKeyboardShortcuts` and Added multiple column editing and multicursot extending with `Alt + Shift + ArrowUp/ArrowDown` as requested in [#80](https://github.com/heckmon/code_forge/issues/80)
+## What's new in 10.6.0:
+  - FIX: [#82](https://github.com/heckmon/code_forge/issues/82)
+  - FIX: Gutter mismatch.
+  - FEATURE: Exposed vertical scroll physics.
 
 
 > [!NOTE]
@@ -134,7 +134,7 @@ To see working examples of all CodeForge features including AI Code Completion, 
 
 ```yaml
 dependencies:
-  code_forge: ^10.5.0
+  code_forge: ^10.6.0
 ```
 - 3 . Then run:
 

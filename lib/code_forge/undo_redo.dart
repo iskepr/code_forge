@@ -10,14 +10,24 @@ sealed class EditOperation {
   /// The cursor position after this edit
   final TextSelection selectionAfter;
 
+  /// Secondary cursor positions before this edit (may be empty)
+  final List<({int line, int character})> multiCursorsBefore;
+
+  /// Secondary cursor positions after this edit (may be empty)
+  final List<({int line, int character})> multiCursorsAfter;
+
   /// Timestamp when this edit was made
   final DateTime timestamp;
 
   EditOperation({
     required this.selectionBefore,
     required this.selectionAfter,
+    List<({int line, int character})>? multiCursorsBefore,
+    List<({int line, int character})>? multiCursorsAfter,
     DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
+  }) : multiCursorsBefore = multiCursorsBefore ?? const [],
+       multiCursorsAfter = multiCursorsAfter ?? const [],
+       timestamp = timestamp ?? DateTime.now();
 
   /// Create the inverse operation for undo
   EditOperation inverse();
@@ -42,6 +52,8 @@ class InsertOperation extends EditOperation {
     required this.text,
     required super.selectionBefore,
     required super.selectionAfter,
+    super.multiCursorsBefore,
+    super.multiCursorsAfter,
     super.timestamp,
   });
 
@@ -52,6 +64,8 @@ class InsertOperation extends EditOperation {
       text: text,
       selectionBefore: selectionAfter,
       selectionAfter: selectionBefore,
+      multiCursorsBefore: multiCursorsAfter,
+      multiCursorsAfter: multiCursorsBefore,
     );
   }
 
@@ -85,6 +99,8 @@ class InsertOperation extends EditOperation {
       text: text + other.text,
       selectionBefore: selectionBefore,
       selectionAfter: other.selectionAfter,
+      multiCursorsBefore: multiCursorsBefore,
+      multiCursorsAfter: other.multiCursorsAfter,
       timestamp: other.timestamp,
     );
   }
@@ -107,6 +123,8 @@ class DeleteOperation extends EditOperation {
     required this.text,
     required super.selectionBefore,
     required super.selectionAfter,
+    super.multiCursorsBefore,
+    super.multiCursorsAfter,
     super.timestamp,
   });
 
@@ -117,6 +135,8 @@ class DeleteOperation extends EditOperation {
       text: text,
       selectionBefore: selectionAfter,
       selectionAfter: selectionBefore,
+      multiCursorsBefore: multiCursorsAfter,
+      multiCursorsAfter: multiCursorsBefore,
     );
   }
 
@@ -149,6 +169,8 @@ class DeleteOperation extends EditOperation {
         text: other.text + text,
         selectionBefore: selectionBefore,
         selectionAfter: other.selectionAfter,
+        multiCursorsBefore: multiCursorsBefore,
+        multiCursorsAfter: other.multiCursorsAfter,
         timestamp: other.timestamp,
       );
     }
@@ -159,6 +181,8 @@ class DeleteOperation extends EditOperation {
         text: text + other.text,
         selectionBefore: selectionBefore,
         selectionAfter: other.selectionAfter,
+        multiCursorsBefore: multiCursorsBefore,
+        multiCursorsAfter: other.multiCursorsAfter,
         timestamp: other.timestamp,
       );
     }
@@ -187,6 +211,8 @@ class ReplaceOperation extends EditOperation {
     required this.insertedText,
     required super.selectionBefore,
     required super.selectionAfter,
+    super.multiCursorsBefore,
+    super.multiCursorsAfter,
     super.timestamp,
   });
 
@@ -198,6 +224,8 @@ class ReplaceOperation extends EditOperation {
       insertedText: deletedText,
       selectionBefore: selectionAfter,
       selectionAfter: selectionBefore,
+      multiCursorsBefore: multiCursorsAfter,
+      multiCursorsAfter: multiCursorsBefore,
     );
   }
 
@@ -232,8 +260,8 @@ class ReplaceOperation extends EditOperation {
 /// undoController.redo();
 /// ```
 class UndoRedoController extends ChangeNotifier {
-  final List<EditOperation> _undoStack = [];
-  final List<EditOperation> _redoStack = [];
+  final List<EditOperation> undoStack = [];
+  final List<EditOperation> redoStack = [];
 
   /// Maximum number of operations to keep in the undo stack
   final int maxStackSize;
@@ -256,16 +284,16 @@ class UndoRedoController extends ChangeNotifier {
   UndoRedoController({this.maxStackSize = 1000, this.groupEdits = true});
 
   /// Whether undo is available
-  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canUndo => undoStack.isNotEmpty;
 
   /// Whether redo is available
-  bool get canRedo => _redoStack.isNotEmpty;
+  bool get canRedo => redoStack.isNotEmpty;
 
   /// Number of operations in the undo stack
-  int get undoStackSize => _undoStack.length;
+  int get undoStackSize => undoStack.length;
 
   /// Number of operations in the redo stack
-  int get redoStackSize => _redoStack.length;
+  int get redoStackSize => redoStack.length;
 
   /// Check if an undo/redo operation is currently being applied
   bool get isUndoRedoInProgress => _isUndoRedoInProgress;
@@ -279,14 +307,14 @@ class UndoRedoController extends ChangeNotifier {
   void recordEdit(EditOperation operation) {
     if (_isUndoRedoInProgress) return;
 
-    if (_redoStack.isNotEmpty) {
-      _redoStack.clear();
+    if (redoStack.isNotEmpty) {
+      redoStack.clear();
     }
 
-    if (groupEdits && _undoStack.isNotEmpty && !_suppressNextMerge) {
-      final last = _undoStack.last;
+    if (groupEdits && undoStack.isNotEmpty && !_suppressNextMerge) {
+      final last = undoStack.last;
       if (last.canMergeWith(operation)) {
-        _undoStack[_undoStack.length - 1] = last.mergeWith(operation);
+        undoStack[undoStack.length - 1] = last.mergeWith(operation);
         _suppressNextMerge = false;
         notifyListeners();
         return;
@@ -294,10 +322,10 @@ class UndoRedoController extends ChangeNotifier {
     }
     _suppressNextMerge = false;
 
-    _undoStack.add(operation);
+    undoStack.add(operation);
 
-    while (_undoStack.length > maxStackSize) {
-      _undoStack.removeAt(0);
+    while (undoStack.length > maxStackSize) {
+      undoStack.removeAt(0);
     }
 
     notifyListeners();
@@ -307,13 +335,13 @@ class UndoRedoController extends ChangeNotifier {
   bool undo() {
     if (!canUndo || _applyEdit == null) return false;
 
-    final operation = _undoStack.removeLast();
+    final operation = undoStack.removeLast();
     final inverse = operation.inverse();
 
     _isUndoRedoInProgress = true;
     try {
       _applyEdit!(inverse);
-      _redoStack.add(operation);
+      redoStack.add(operation);
     } finally {
       _isUndoRedoInProgress = false;
     }
@@ -326,12 +354,12 @@ class UndoRedoController extends ChangeNotifier {
   bool redo() {
     if (!canRedo || _applyEdit == null) return false;
 
-    final operation = _redoStack.removeLast();
+    final operation = redoStack.removeLast();
 
     _isUndoRedoInProgress = true;
     try {
       _applyEdit!(operation);
-      _undoStack.add(operation);
+      undoStack.add(operation);
     } finally {
       _isUndoRedoInProgress = false;
     }
@@ -342,8 +370,8 @@ class UndoRedoController extends ChangeNotifier {
 
   /// Clear all undo/redo history
   void clear() {
-    _undoStack.clear();
-    _redoStack.clear();
+    undoStack.clear();
+    redoStack.clear();
     notifyListeners();
   }
 
@@ -361,8 +389,8 @@ class UndoRedoController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _undoStack.clear();
-    _redoStack.clear();
+    undoStack.clear();
+    redoStack.clear();
     super.dispose();
   }
 }
@@ -374,28 +402,30 @@ class CompoundOperationHandle {
   bool _isActive = true;
 
   CompoundOperationHandle._(this._controller)
-    : _startStackSize = _controller._undoStack.length;
+    : _startStackSize = _controller.undoStack.length;
 
   /// End the compound operation, combining all recorded edits into one.
   void end() {
     if (!_isActive) return;
     _isActive = false;
 
-    final newOps = _controller._undoStack.sublist(_startStackSize);
+    final newOps = _controller.undoStack.sublist(_startStackSize);
     if (newOps.isEmpty) return;
 
-    _controller._undoStack.removeRange(
+    _controller.undoStack.removeRange(
       _startStackSize,
-      _controller._undoStack.length,
+      _controller.undoStack.length,
     );
 
     final compound = CompoundOperation(
       operations: newOps,
       selectionBefore: newOps.first.selectionBefore,
       selectionAfter: newOps.last.selectionAfter,
+      multiCursorsBefore: newOps.first.multiCursorsBefore,
+      multiCursorsAfter: newOps.last.multiCursorsAfter,
     );
 
-    _controller._undoStack.add(compound);
+    _controller.undoStack.add(compound);
     _controller._notifyListenersPublic();
   }
 }
@@ -408,6 +438,8 @@ class CompoundOperation extends EditOperation {
     required this.operations,
     required super.selectionBefore,
     required super.selectionAfter,
+    super.multiCursorsBefore,
+    super.multiCursorsAfter,
   });
 
   @override
@@ -416,6 +448,8 @@ class CompoundOperation extends EditOperation {
       operations: operations.reversed.map((op) => op.inverse()).toList(),
       selectionBefore: selectionAfter,
       selectionAfter: selectionBefore,
+      multiCursorsBefore: multiCursorsAfter,
+      multiCursorsAfter: multiCursorsBefore,
     );
   }
 

@@ -126,6 +126,11 @@ class CodeForge extends StatefulWidget {
   /// Custom scroll controller for horizontal scrolling.
   final ScrollController? horizontalScrollController;
 
+  /// The scroll physics that can be used to modify the vertical scroll behaviour of the editor.<br>
+  /// Defaults to [ClampingScrollPhysics].<br>
+  /// The horizontal scroll physics cannot be modified because [CodeForge] internally uses a custom scroll physics for RTL support.
+  final ScrollPhysics verticalScrollPhysics;
+
   /// Keyboard shortcuts used by the [CodeForge] editor.<br>
   /// Most of the keyboard shortcuts, except the core operations like cut, copy, paste, select all, undo, redo
   /// can be modified by editing the hardcoded shortcuts defined in the [CodeForgeKeyboardShotcuts] class.<br>
@@ -279,6 +284,7 @@ class CodeForge extends StatefulWidget {
     this.focusNode,
     this.verticalScrollController,
     this.horizontalScrollController,
+    this.verticalScrollPhysics = const ClampingScrollPhysics(),
     this.textStyle,
     this.innerPadding,
     this.keyboardShotcuts = const CodeForgeKeyboardShortcuts(),
@@ -581,7 +587,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
 
           _controller.connection = _connection;
         }
-        if (!_isMobile && !widget.readOnly) _connection!.show();
+        if (!_isMobile) _connection!.show();
         _connection!.setEditingState(
           _controller.currentTextEditingValue ??
               TextEditingValue(
@@ -1652,7 +1658,7 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                         controller: _vscrollController,
                                         physics: selVal
                                             ? const NeverScrollableScrollPhysics()
-                                            : const ClampingScrollPhysics(),
+                                            : widget.verticalScrollPhysics,
                                       ),
                                       viewportBuilder: (_, voffset, hoffset) => CustomViewport(
                                         verticalOffset: voffset,
@@ -2509,7 +2515,13 @@ class _CodeForgeState extends State<CodeForge> with TickerProviderStateMixin {
                                                         return KeyEventResult
                                                             .handled;
                                                       }
-                                                      _controller.delete();
+                                                      if (_controller
+                                                          .hasMultiCursors) {
+                                                        _controller
+                                                            .deleteAtAllCursors();
+                                                      } else {
+                                                        _controller.delete();
+                                                      }
                                                       if (_suggestionNotifier
                                                               .value !=
                                                           null) {
@@ -7289,12 +7301,6 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     return averageHeight * visibleLineCount;
   }
 
-  /// The top of the visual row a glyph [box] sits on, as a whole multiple of the
-  /// line height. Uses the box's vertical center, not its top: with
-  /// BoxHeightStyle.max a tall glyph (e.g. CJK) has a box top above the row
-  /// origin, so flooring the top would land a row too high; the center always
-  /// falls inside the glyph's own row, giving the right row for ASCII, CJK, and
-  /// wrapped continuation rows alike.
   double _rowTopForBox(ui.TextBox box) {
     final center = (box.top + box.bottom) / 2.0;
     final rowIndex = (center / _lineHeight).floor();
@@ -8228,7 +8234,7 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     _actionBulbRects.clear();
 
     double currentY = firstVisibleLineY;
-    int indexTracker = 1;
+    int indexTracker = firstVisibleLine + 1;
 
     for (int i = firstVisibleLine; i < lineCount; i++) {
       if (_hasActiveFolds && _isLineFolded(i)) continue;
@@ -11465,7 +11471,8 @@ class _CodeFieldRenderer extends RenderBox implements MouseTrackerAnnotation {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       if (!_isDragging && isMobile && !_selectionActive) {
         controller.selection = TextSelection.collapsed(offset: textOffset);
-        if (controller.connection?.attached ?? false || !readOnly) {
+        if (controller.connection?.attached ?? false) {
+          if (readOnly) return;
           controller.connection?.show();
         }
       }

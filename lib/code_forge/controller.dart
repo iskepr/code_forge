@@ -908,6 +908,9 @@ class CodeForgeController implements DeltaTextInputClient {
     _flushBuffer();
 
     final selectionBefore = _selection;
+    final multiCursorsBeforeSnapshot = List<({int line, int character})>.from(
+      _multiCursors,
+    );
     final primaryOffset = selection.extentOffset.clamp(0, _rope.length);
     final offsets = <int>[primaryOffset];
     for (final c in _multiCursors) {
@@ -956,9 +959,83 @@ class CodeForgeController implements DeltaTextInputClient {
       _multiCursors.add((line: newLine, character: newOffset - newLineStart));
     }
 
-    multiCursorsChanged = true;
+    _patchLastCompoundMultiCursors(
+      before: multiCursorsBeforeSnapshot,
+      after: List<({int line, int character})>.from(_multiCursors),
+    );
+
     dirtyRegion = TextRange(start: 0, end: _rope.length);
-    _invalidateImeSnapshotAndScheduleSync();
+    _scheduleSyncToConnection();
+    notifyListeners();
+  }
+
+  /// Performs deletion operation at all cursor positions.
+  void deleteAtAllCursors() {
+    if (readOnly || _multiCursors.isEmpty) return;
+
+    _flushBuffer();
+
+    final selectionBefore = _selection;
+    final multiCursorsBeforeSnapshot = List<({int line, int character})>.from(
+      _multiCursors,
+    );
+    final primaryOffset = selection.extentOffset.clamp(0, _rope.length);
+    final offsets = <int>[primaryOffset];
+    for (final c in _multiCursors) {
+      offsets.add(_multiCursorToOffset(c).clamp(0, _rope.length));
+    }
+
+    final uniqueOffsets = offsets.toSet().toList()
+      ..sort((a, b) => a.compareTo(b));
+
+    final compound = _undoController?.beginCompoundOperation();
+
+    for (final offset in uniqueOffsets.reversed) {
+      if (offset < _rope.length) {
+        final deletedChar = _rope.substring(offset, offset + 1);
+        _rope.delete(offset, offset + 1);
+        _currentVersion++;
+
+        _recordDeletion(
+          offset,
+          deletedChar,
+          selectionBefore,
+          TextSelection.collapsed(offset: offset),
+        );
+      }
+    }
+
+    compound?.end();
+
+    final primaryIndex = uniqueOffsets.indexOf(primaryOffset);
+    final primaryShift = primaryOffset < _rope.length + primaryIndex
+        ? primaryIndex
+        : 0;
+    final primaryNewOffset = (primaryOffset - primaryShift).clamp(
+      0,
+      _rope.length,
+    );
+    _selection = TextSelection.collapsed(offset: primaryNewOffset);
+
+    _multiCursors.clear();
+    for (int k = 0; k < uniqueOffsets.length; k++) {
+      final origOffset = uniqueOffsets[k];
+      final newOffset = (origOffset - k).clamp(0, _rope.length);
+      if (newOffset == primaryNewOffset) continue;
+      final newLine = _rope.getLineAtOffset(newOffset);
+      final newLineStart = _rope.getLineStartOffset(newLine);
+      _multiCursors.add((line: newLine, character: newOffset - newLineStart));
+    }
+
+    _patchLastCompoundMultiCursors(
+      before: multiCursorsBeforeSnapshot,
+      after: List<({int line, int character})>.from(_multiCursors),
+    );
+
+    dirtyRegion = TextRange(start: 0, end: _rope.length);
+    _imeProjectionDirty = true;
+    _imeSelectionNeedsResync = true;
+    _scheduleSyncToConnection();
     notifyListeners();
   }
 
@@ -974,6 +1051,9 @@ class CodeForgeController implements DeltaTextInputClient {
     _flushBuffer();
 
     final selectionBefore = _selection;
+    final multiCursorsBeforeSnapshot = List<({int line, int character})>.from(
+      _multiCursors,
+    );
     final primaryOffset = selection.extentOffset.clamp(0, _rope.length);
     final offsets = <int>[primaryOffset];
     for (final c in _multiCursors) {
@@ -1018,7 +1098,11 @@ class CodeForgeController implements DeltaTextInputClient {
       _multiCursors.add((line: newLine, character: newOffset - newLineStart));
     }
 
-    multiCursorsChanged = true;
+    _patchLastCompoundMultiCursors(
+      before: multiCursorsBeforeSnapshot,
+      after: List<({int line, int character})>.from(_multiCursors),
+    );
+
     dirtyRegion = TextRange(start: 0, end: _rope.length);
     _scheduleSyncToConnection();
     notifyListeners();
@@ -2659,15 +2743,6 @@ class CodeForgeController implements DeltaTextInputClient {
     _syncToConnection();
   }
 
-  /// Whether the platform's editing value, after applying [deltas], differs from
-  /// the current projection ([_imeProjectionText], which the caller refreshes).
-  ///
-  /// The platform's post-batch value is reconstructed by replaying the deltas
-  /// over the pre-edit value each delta reports in `oldText`, using the
-  /// engine-equivalent [TextEditingDelta.apply]. A batch of only non-text updates
-  /// (selection/composing) never diverges. Matches for plain typing the platform
-  /// applied itself; differs when the edit diverged from the raw delta or slid
-  /// the projection window onto a different document slice.
   bool _platformValueDivergesFromProjection(List<TextEditingDelta> deltas) {
     if (connection == null || !connection!.attached) return false;
     String? platformText;
@@ -2850,12 +2925,6 @@ class CodeForgeController implements DeltaTextInputClient {
     );
   }
 
-  /// Maps the tracked global composing region into the active IME projection
-  /// window's local coordinate space, clamped to the projected text.
-  ///
-  /// Returns [TextRange.empty] when there is no active composition or when the
-  /// region lies entirely outside the projected window (and therefore cannot be
-  /// represented to the platform faithfully).
   TextRange _projectComposing(int projectionStartOffset, int projectionLength) {
     final composing = _imeComposingGlobal;
     if (!composing.isValid || composing.isCollapsed) return TextRange.empty;
@@ -2868,14 +2937,6 @@ class CodeForgeController implements DeltaTextInputClient {
     return TextRange(start: clampedStart, end: clampedEnd);
   }
 
-  /// Records the IME composing region (reported in the projection's local
-  /// coordinates) as a stable global-document range.
-  ///
-  /// The region is anchored to the editor's *actual* post-edit caret rather
-  /// than to the IME's raw offset, so it stays correct even when an insertion
-  /// is re-anchored to the current selection (see [updateEditingValueWithDeltas]
-  /// and its `useCurrentSelection` path) or while typed characters are still
-  /// held in the line buffer.
   void _trackImeComposing(TextRange imeComposing, int imeCaretLocal) {
     if (!imeComposing.isValid || imeComposing.isCollapsed) {
       _imeComposingGlobal = TextRange.empty;
@@ -2893,43 +2954,18 @@ class CodeForgeController implements DeltaTextInputClient {
         : TextRange.empty;
   }
 
-  /// Opens a single undo group spanning an entire IME composition so the
-  /// intermediate composing edits (e.g. the raw pinyin letters) collapse into
-  /// one undoable unit together with the final committed text.
-  ///
-  /// A composition is reported across multiple input callbacks, so the group
-  /// is opened on the first callback that carries a composing region and is
-  /// kept open (see [_imeCompositionUndoGroup]) until the composition ends.
-  /// Must be called before the edit for the current callback is recorded.
   void _beginImeCompositionUndoGroup(bool incomingHasComposing) {
     if (incomingHasComposing && _imeCompositionUndoGroup == null) {
       _imeCompositionUndoGroup = _undoController?.beginCompoundOperation();
     }
   }
 
-  /// Closes the composition undo group once the composition is no longer
-  /// active, merging everything recorded since it was opened into a single
-  /// undo entry. Safe to call when no group is open.
   void _endImeCompositionUndoGroupIfIdle() {
     if (_imeCompositionUndoGroup != null && _imeComposition == null) {
       _imeCompositionUndoGroup!.end();
       _imeCompositionUndoGroup = null;
     }
   }
-
-  // ===========================================================================
-  // IME composition overlay
-  // ===========================================================================
-  // Composition (CJK pinyin/kana, dead keys, etc.) is handled WITHOUT mutating
-  // the document while it is in progress. The platform's editing value is
-  // mirrored in [_imeMirrorText]/[_imeMirrorSelection]/[_imeMirrorComposing];
-  // its committed portion (the mirror with the composing range excised) is kept
-  // identical to the document's projected window. On every delta we apply the
-  // delta to the mirror with Flutter's own [TextEditingDelta.apply] (engine-
-  // equivalent), then reduce the change to at most one document edit -- the
-  // difference between the new committed text and the window. During a steady
-  // composition that difference is empty, so the document never holds transient
-  // composing glyphs; the committed result lands as a single edit on commit.
 
   /// The active IME composition overlay, or null when no composition is in
   /// progress. Read by the renderer to paint the composing string.
@@ -4783,6 +4819,24 @@ class CodeForgeController implements DeltaTextInputClient {
     return score;
   }
 
+  void _patchLastCompoundMultiCursors({
+    required List<({int line, int character})> before,
+    required List<({int line, int character})> after,
+  }) {
+    if (_undoController == null) return;
+    final stack = _undoController!;
+    if (stack.undoStack.isEmpty) return;
+    final last = stack.undoStack.last;
+    if (last is! CompoundOperation) return;
+    stack.undoStack[stack.undoStack.length - 1] = CompoundOperation(
+      operations: last.operations,
+      selectionBefore: last.selectionBefore,
+      selectionAfter: last.selectionAfter,
+      multiCursorsBefore: before,
+      multiCursorsAfter: after,
+    );
+  }
+
   void _applyUndoRedoOperation(EditOperation operation) {
     _flushBuffer();
 
@@ -4834,12 +4888,24 @@ class CodeForgeController implements DeltaTextInputClient {
         for (final op in operations) {
           _applyUndoRedoOperation(op);
         }
+        _restoreMultiCursorsFromOperation(operation);
         return;
     }
+
+    _restoreMultiCursorsFromOperation(operation);
 
     _scheduleLspFullSync(text);
     _invalidateImeSnapshotAndScheduleSync();
     notifyListeners();
+  }
+
+  void _restoreMultiCursorsFromOperation(EditOperation operation) {
+    final cursors = operation.multiCursorsAfter;
+    if (cursors.isEmpty && _multiCursors.isEmpty) return;
+    _multiCursors
+      ..clear()
+      ..addAll(cursors);
+    multiCursorsChanged = true;
   }
 
   void _recordEdit(EditOperation operation) {
@@ -4850,8 +4916,10 @@ class CodeForgeController implements DeltaTextInputClient {
     int offset,
     String text,
     TextSelection selBefore,
-    TextSelection selAfter,
-  ) {
+    TextSelection selAfter, {
+    List<({int line, int character})>? multiCursorsBefore,
+    List<({int line, int character})>? multiCursorsAfter,
+  }) {
     if (_undoController?.isUndoRedoInProgress ?? false) return;
     _recordEdit(
       InsertOperation(
@@ -4859,6 +4927,8 @@ class CodeForgeController implements DeltaTextInputClient {
         text: text,
         selectionBefore: selBefore,
         selectionAfter: selAfter,
+        multiCursorsBefore: multiCursorsBefore,
+        multiCursorsAfter: multiCursorsAfter,
       ),
     );
     if (!_suppressLspFallbackSync) {
@@ -4870,8 +4940,10 @@ class CodeForgeController implements DeltaTextInputClient {
     int offset,
     String text,
     TextSelection selBefore,
-    TextSelection selAfter,
-  ) {
+    TextSelection selAfter, {
+    List<({int line, int character})>? multiCursorsBefore,
+    List<({int line, int character})>? multiCursorsAfter,
+  }) {
     if (_undoController?.isUndoRedoInProgress ?? false) return;
     _recordEdit(
       DeleteOperation(
@@ -4879,6 +4951,8 @@ class CodeForgeController implements DeltaTextInputClient {
         text: text,
         selectionBefore: selBefore,
         selectionAfter: selAfter,
+        multiCursorsBefore: multiCursorsBefore,
+        multiCursorsAfter: multiCursorsAfter,
       ),
     );
     if (!_suppressLspFallbackSync) {

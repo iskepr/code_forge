@@ -42,24 +42,22 @@ class SyntaxHighlighter {
   final Map<String, TextStyle> editorTheme;
   final TextStyle? baseTextStyle;
   final String? languageId;
+  final Map<int, HighlightedLine> _grammarCache = {}, _mergedCache = {};
+  final Map<int, List<SemanticWordSpan>> _lineSemanticSpans = {};
+  final Map<String, TextSpan?> _lineSpanCache = {};
   late final String _langId;
   late final Highlight _highlight;
   late final Map<String, TextStyle> _resolvedTheme;
   late final List<Mode> _registeredExtraLanguages;
   late final Map<String, List<String>> _semanticMapping;
-  final Map<int, HighlightedLine> _grammarCache = {}, _mergedCache = {};
-  final Map<int, List<SemanticWordSpan>> _lineSemanticSpans = {};
-  final Map<String, TextSpan?> _lineSpanCache = {};
-  Future<void>? _preHighlightInFlight;
-  int _preHighlightInFlightVersion = -1;
-  bool _isEditing = false;
-  int _version = 0;
-  int _documentVersion = 0;
   static const int isolateThreshold = 500;
   static const int _cacheKeepMargin = 500;
   static const int _maxLineCacheEntries = 6000;
   static const int _maxSpanCacheEntries = 8000;
   int get documentVersion => _documentVersion;
+  Future<void>? _preHighlightInFlight;
+  int _preHighlightInFlightVersion = -1, _version = 0, _documentVersion = 0;
+  bool _isEditing = false;
 
   SyntaxHighlighter({
     required this.language,
